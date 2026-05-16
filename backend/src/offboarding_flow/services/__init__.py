@@ -5,6 +5,7 @@ from .auto_node_service import AutoNodeService
 from .flow_service import FlowService
 from .llm_service import LLMService
 from .node_service import NodeService
+from .notification_service import NotificationService, render_node_waiting_email
 from .timeline_renderer import render_timeline
 
 __all__ = [
@@ -14,6 +15,8 @@ __all__ = [
     "FlowService",
     "LLMService",
     "NodeService",
+    "NotificationService",
+    "render_node_waiting_email",
     "render_timeline",
     "wrap_ai_output",
 ]

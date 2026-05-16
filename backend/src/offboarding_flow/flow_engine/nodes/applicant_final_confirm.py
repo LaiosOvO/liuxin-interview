@@ -25,7 +25,7 @@ from offboarding_flow.flow_engine.state import OffboardingState
 APPLICANT_FINAL_CONFIRM_NODE_NAME = "applicant_final_confirm"
 APPLICANT_FINAL_CONFIRM_NODE_TITLE = "申请人最终确认"
 APPLICANT_FINAL_CONFIRM_NODE_DESCRIPTION = (
-    "你的离职流程已完成全部审核环节，请最终确认以下执行记录无误。" "如有异议可退回 HR 终审复核。"
+    "你的离职流程已完成全部审核环节，请最终确认以下执行记录无误。如有异议可退回 HR 终审复核。"
 )
 
 logger = logging.getLogger(__name__)

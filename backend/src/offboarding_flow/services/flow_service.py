@@ -21,7 +21,12 @@ from offboarding_flow.flow_engine.nodes import (
     MANAGER_REVIEW_NODE_TITLE,
 )
 from offboarding_flow.flow_engine.state import OffboardingState
-from offboarding_flow.state_store.enums import ActionStatus, ActionType, NodeStatus
+from offboarding_flow.state_store.enums import (
+    ActionStatus,
+    ActionType,
+    NodeStatus,
+    Role,
+)
 from offboarding_flow.state_store.repositories import (
     ActionRepository,
     FlowRepository,
@@ -29,6 +34,10 @@ from offboarding_flow.state_store.repositories import (
 )
 
 logger = logging.getLogger(__name__)
+
+# manager_review 默认角色（Phase 4 假设 — Phase 5 接 users 表才能动态查 assignee 角色）
+_DEFAULT_MANAGER_ROLE = Role.MANAGER.value
+_DEFAULT_MANAGER_DESC = "请审阅离职申请，确认理由并选择 通过 / 退回 / 拒绝。"
 
 
 class FlowService:
@@ -41,12 +50,14 @@ class FlowService:
         node_repo: NodeRepository,
         action_repo: ActionRepository,
         graph: Any,  # CompiledStateGraph
+        notification_service: Any | None = None,  # NotificationService — Phase 4 注入
     ) -> None:
         self.session = session
         self.flow_repo = flow_repo
         self.node_repo = node_repo
         self.action_repo = action_repo
         self.graph = graph
+        self.notification_service = notification_service
 
     async def create_flow(
         self,
@@ -80,12 +91,37 @@ class FlowService:
             node_title=APPLY_NODE_TITLE,
             status=NodeStatus.DONE,
         )
-        await self.node_repo.upsert(
+        manager_node = await self.node_repo.upsert(
             flow_id=flow.id,
             node_name=MANAGER_REVIEW_NODE_NAME,
             node_title=MANAGER_REVIEW_NODE_TITLE,
             status=NodeStatus.WAITING_HUMAN,
         )
+
+        # Phase 4 Slice 4A: outbox 入队 manager_review email（事务内一致提交，REQ-NOTI-01/04）
+        # 失败仅 log warning 不阻断主链路（双通道：Mattermost 还在 Slice 4B）
+        if self.notification_service is not None and manager_node is not None:
+            try:
+                # Phase 4 未接 users 表：assignee_email 用 placeholder（演示模式被 envelope 覆写到 DEMO_INBOX）
+                # Phase 5 接 users 表后改为查真实邮箱
+                placeholder_email = f"{manager_node.assignee or 'manager'}@demo.local"
+                await self.notification_service.enqueue_node_email(
+                    flow_id=flow.id,
+                    node_state_id=manager_node.id,
+                    node_name=MANAGER_REVIEW_NODE_NAME,
+                    node_title=MANAGER_REVIEW_NODE_TITLE,
+                    node_description=_DEFAULT_MANAGER_DESC,
+                    assignee_username=manager_node.assignee or "manager",
+                    assignee_email=placeholder_email,
+                    assignee_role=_DEFAULT_MANAGER_ROLE,
+                    employee_name=employee_id,
+                )
+            except Exception as enqueue_exc:
+                logger.warning(
+                    "[flow_service] outbox enqueue failed (non-fatal) flow=%s: %s",
+                    flow.id,
+                    enqueue_exc,
+                )
 
         # 提交业务事务
         await self.session.commit()

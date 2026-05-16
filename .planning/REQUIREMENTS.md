@@ -26,10 +26,10 @@
 
 ### 通知（Phase 4，双通道）
 
-- [ ] **NOTI-01**: 节点进入 `waiting_human` 时通过 `notification_outbox` 表 + APScheduler `outbox_drain` 异步发送邮件（QQ 邮箱 smtp.qq.com:465 SSL）— 不阻塞节点函数
+- [~] **NOTI-01**: 节点进入 `waiting_human` 时通过 `notification_outbox` 表 + APScheduler `outbox_drain` 异步发送邮件（QQ 邮箱 smtp.qq.com:465 SSL）— 不阻塞节点函数 *(Slice 4A: outbox 入队 + EmailSender 实现完成；APScheduler drain 待 Slice 4D)*
 - [ ] **NOTI-02**: 同时通过 Mattermost Bot Personal Access Token 推送 Interactive Message 卡片
-- [ ] **NOTI-03**: 演示模式 (`APP_MODE=demo`) 下所有邮件路由到 `DEMO_INBOX=1624456575@qq.com`，主题前缀加角色标签 `[设备管理员·it.charlie]`，正文加横幅
-- [ ] **NOTI-04**: 通知发送 / 失败 / 重试记录写入 `notifications` 表；outbox 表加 `UNIQUE(flow_id, node_state_id, channel)` 保证幂等
+- [x] **NOTI-03**: 演示模式 (`APP_MODE=demo`) 下所有邮件路由到 `DEMO_INBOX=1624456575@qq.com`，主题前缀加角色标签 `[设备管理员·it.charlie]`，正文加横幅 *(Slice 4A: EmailEnvelope 收口完成)*
+- [x] **NOTI-04**: 通知发送 / 失败 / 重试记录写入 `notifications` 表；outbox 表加 `UNIQUE(flow_id, node_state_id, channel)` 保证幂等 *(Slice 4A: outbox 表 UNIQUE 约束 + OutboxRepository ON CONFLICT 幂等入队完成；notifications 表写入待 Slice 4D drain)*
 - [ ] **NOTI-05**: 节点超时 (>24h) 后台 APScheduler `timeout_scan` job 每分钟扫描自动重发提醒给 assignee + HR（Phase 6 落地）
 
 ### LLM / AI 能力（Phase 4，v0.4 大幅扩展）
@@ -138,10 +138,10 @@
 | AUTH-02 | Phase 3 | Complete |
 | AUTH-03 | Phase 3 | Complete |
 | AUTH-04 | Phase 3 | Complete |
-| NOTI-01 | Phase 4 | Pending |
+| NOTI-01 | Phase 4 (Slice 4A) | Partial (outbox + envelope + SMTP sender 完成；APScheduler drain 待 Slice 4D) |
 | NOTI-02 | Phase 4 | Pending |
-| NOTI-03 | Phase 4 | Pending |
-| NOTI-04 | Phase 4 | Pending |
+| NOTI-03 | Phase 4 (Slice 4A) | Complete (EmailEnvelope 演示模式收口 + 角色前缀 + 横幅) |
+| NOTI-04 | Phase 4 (Slice 4A) | Complete (outbox UNIQUE 约束 + ON CONFLICT 幂等入队) |
 | NOTI-05 | Phase 6 | Pending |
 | LLM-01 | Phase 4 / Slice 4C | Complete |
 | LLM-02 | Phase 4 / Slice 4C | Complete |

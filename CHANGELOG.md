@@ -109,6 +109,43 @@
 
 ---
 
+### Phase 4 Slice 4A (2026-05-16) — notifications/ 子包 + 邮件 outbox 基础设施
+
+**交付**：REQ-NOTI-01（部分）+ NOTI-03 + NOTI-04 — outbox 模式入队、SMTP 发送层、演示模式信封覆写、HTML 模板
+
+#### Added
+- `backend/src/offboarding_flow/notifications/` 子包：
+  - `outbox_repository.py` — OutboxRepository (enqueue ON CONFLICT 幂等 / list_pending FOR UPDATE SKIP LOCKED / mark_success / mark_failed 退避)
+  - `email_sender.py` — aiosmtplib + QQ smtp.qq.com:465 + use_tls=True + EmailMessage 自动 RFC 2047 编码中文 subject（PITFALLS #15）
+  - `email_envelope.py` — EmailEnvelope dataclass + build_envelope() 单点收口 demo/prod 差异：`delivery_to` 覆写 / 主题加 `[角色中文·username]` 前缀 / HTML 正文加横幅（PITFALLS #10 + PRD §7.4.1）
+  - `templates/node_waiting_email.html` — jinja2 table-based 中文邮件模板，含立即处理按钮 + 深链 fallback（与 Phase 3 build_deep_link 集成）
+- `services/notification_service.py` — NotificationService 业务层 + render_node_waiting_email 纯函数渲染
+- `api/deps.py` — get_outbox_repo / get_notification_service DI 注入 + FlowService 接 notification_service
+- `services/flow_service.py` — create_flow 在 manager_review 入 WAITING_HUMAN 后事务内 enqueue 邮件 outbox（失败仅 log 不阻断）
+- `config.py` 扩展 SMTP_HOST / SMTP_PORT / SMTP_USE_SSL / SMTP_USER / SMTP_PASSWORD / SMTP_FROM_NAME / DEMO_INBOX
+- prod 模式启动新增 SMTP_PASSWORD 占位校验（继 JWT_SECRET 校验风格）
+- pyproject.toml deps: aiosmtplib>=3,<5 + jinja2>=3.1,<4；pytest markers 注册 `unit`
+
+#### Tests
+- 单元 19 PASS：
+  - test_email_envelope.py (7) — demo 覆写 / 角色映射 / 横幅 / prod passthrough / 未知 role fallback / ROLE_CN_MAP 完整性
+  - test_email_sender.py (7) — RFC 2047 编码 + round-trip 解码 / multipart alternative / To header / 非法 SMTP_USER 兜底 / mock smtp 成功失败路径
+  - test_notification_service.py (5) — HTML 含深链 + 节点元数据 + 中文 / text 纯文本 fallback / jinja autoescape XSS 防护 / enqueue payload 完整性 / 幂等冲突 None 返回
+- 集成 4（OutboxRepository CRUD + 幂等 + 退避，DB 不可达自动 skip）+ 1（MailHog 真发邮件 + API 验证主题编码，端口不可达自动 skip）— mailpit 启动方式见 test_email_sender_integration.py docstring
+- 全套 178 passed / 26 skipped（与 Phase 3 完成时一致 + 19 新增）
+
+#### Out of scope (defer to later Slice)
+- Slice 4B: Mattermost outbox + Interactive Message 卡片
+- Slice 4D: APScheduler outbox_drain job + notifications 表写入 + tenacity 重试 + 限流 Semaphore（PITFALLS #14）
+- Phase 5: users 表接 assignee 真实邮箱（当前 flow_service 用 `{assignee}@demo.local` 占位）
+
+#### REQ-ID 状态
+- NOTI-01: Partial（outbox + EmailSender 完成，drain 待 4D）
+- NOTI-03: Complete
+- NOTI-04: Complete（outbox 幂等；notifications 表写入待 4D）
+
+---
+
 ### Phase 3 Complete (2026-05-16) — merged via worktree-phase-3-auth
 
 **交付**：Phase 3 鉴权 + 深链 JWT 一键登录 + jti 一次性消费完整落地（AUTH-01..04 全部 Complete）

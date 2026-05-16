@@ -60,6 +60,19 @@ class Settings(BaseSettings):
     glm_model: str = "glm-4.6"  # 演示低成本可改 glm-4-flash
     glm_timeout_seconds: float = 8.0  # PITFALLS #22 — asyncio.timeout(8)
 
+    # Phase 4 / Slice 4A: 通知 — SMTP / 演示模式收件箱（PRD §7.4.3 + PITFALLS #14/#15）
+    smtp_host: str = "smtp.qq.com"
+    smtp_port: int = 465
+    smtp_use_ssl: bool = True  # QQ 强制 SSL，不是 STARTTLS
+    smtp_user: str = "changeme_in_real_env@qq.com"
+    smtp_password: str = Field(
+        default="changeme_in_real_env_16char_authcode",
+        validate_default=False,
+    )
+    smtp_from_name: str = "离职流程 Bot"
+    # 演示模式所有邮件覆写到此地址（PRD §7.4.1）
+    demo_inbox: str = "changeme_in_real_env@qq.com"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -96,6 +109,9 @@ def get_settings() -> Settings:
         "changeme_in_real_env_openssl_rand_hex_32",
     }:
         raise RuntimeError("生产模式（APP_MODE=prod）必须设置 JWT_SECRET（openssl rand -hex 32）")
+    # Phase 4: 生产模式 SMTP_PASSWORD 校验 — 禁止占位 16char 授权码上线（PITFALLS #10）
+    if settings.app_mode == "prod" and settings.smtp_password.startswith("changeme_in_real_env"):
+        raise RuntimeError("生产模式（APP_MODE=prod）必须设置 SMTP_PASSWORD（QQ 邮箱 16 位授权码）")
     return settings
 
 

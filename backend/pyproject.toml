@@ -33,6 +33,9 @@ dependencies = [
   "httpx>=0.28,<0.30",
   # Phase 4 / Slice 4C: LLM (GLM via openai 兼容接口) — STACK.md §4.6
   "openai>=1.40,<2",
+  # Phase 4 / Slice 4A: 通知（SMTP + HTML 模板）
+  "aiosmtplib>=3.0,<5",
+  "jinja2>=3.1,<4",
 ]
 
 [project.optional-dependencies]
@@ -104,5 +107,6 @@ pythonpath = ["src"]
 markers = [
   "e2e: 需要真后端容器，默认 skip（OFFBOARDING_E2E_BASE_URL 环境变量启用）",
   "integration: 真 PG + 真 graph 集成测试，默认 skip（TEST_DATABASE_URL 环境变量启用）",
+  "unit: 纯单元测试（无 IO 依赖，可在任意环境运行）",
 ]
 addopts = "-m 'not e2e and not integration'"

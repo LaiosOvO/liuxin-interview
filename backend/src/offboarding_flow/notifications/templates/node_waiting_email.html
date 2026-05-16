@@ -1,0 +1,81 @@
+{# 节点 waiting_human 提醒邮件 — table-based HTML，兼容老旧邮件客户端 #}
+{# 渲染上下文（template_renderer 注入）：employee_name / node_title / node_description / role_cn / username / deep_link_url / flow_id_short #}
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <title>{{ node_title }} 待处理</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F4F6F8;font-family:'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F4F6F8;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="background-color:#FFFFFF;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06);overflow:hidden;">
+          {# Header #}
+          <tr>
+            <td style="background-color:#1F6FEB;padding:20px 28px;color:#FFFFFF;">
+              <div style="font-size:20px;font-weight:600;">离职流程 — 待您处理</div>
+              <div style="font-size:13px;opacity:0.85;margin-top:4px;">流程 #{{ flow_id_short }}</div>
+            </td>
+          </tr>
+
+          {# Body #}
+          <tr>
+            <td style="padding:24px 28px;color:#1F2937;font-size:14px;line-height:1.7;">
+              <p style="margin:0 0 12px 0;">您好，{{ username }}：</p>
+              <p style="margin:0 0 16px 0;">
+                员工 <strong>{{ employee_name }}</strong> 的离职流程已进入
+                <strong>{{ node_title }}</strong> 环节，需要您（角色：{{ role_cn }}）尽快处理。
+              </p>
+
+              {# 节点说明 #}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F9FAFB;border-left:3px solid #1F6FEB;padding:12px 16px;margin:16px 0;border-radius:4px;">
+                <tr>
+                  <td style="font-size:13px;color:#374151;">
+                    <strong>节点说明：</strong><br/>
+                    {{ node_description }}
+                  </td>
+                </tr>
+              </table>
+
+              {# CTA 按钮 — 一键登录深链（Phase 3 build_deep_link 产出）#}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:24px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="{{ deep_link_url }}"
+                       style="display:inline-block;background-color:#1F6FEB;color:#FFFFFF;
+                              text-decoration:none;padding:12px 32px;border-radius:6px;
+                              font-size:15px;font-weight:500;">
+                      立即处理
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top:10px;font-size:12px;color:#6B7280;">
+                    （点击按钮将自动登录系统，无需输入密码）
+                  </td>
+                </tr>
+              </table>
+
+              {# 链接 fallback —— 部分客户端禁用图片 / 按钮渲染 #}
+              <p style="margin:16px 0 0 0;font-size:12px;color:#6B7280;word-break:break-all;">
+                如按钮无法点击，请复制以下链接到浏览器：<br/>
+                <span style="color:#1F6FEB;">{{ deep_link_url }}</span>
+              </p>
+            </td>
+          </tr>
+
+          {# Footer #}
+          <tr>
+            <td style="background-color:#F9FAFB;padding:16px 28px;font-size:12px;color:#6B7280;border-top:1px solid #E5E7EB;">
+              <p style="margin:0;">
+                此邮件由 <strong>离职流程系统</strong> 自动发送。如有疑问请联系 HR。
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
