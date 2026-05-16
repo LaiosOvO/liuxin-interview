@@ -37,13 +37,14 @@ def _make_settings() -> Settings:
 
 
 def _make_envelope(settings: Settings) -> EmailEnvelope:
+    # 用未在 DEMO_INBOX_MAP 中的 username，触发 fallback 到 settings.demo_inbox 走原测试路径
     return build_envelope(
-        recipient_real="it.charlie@demo.local",
+        recipient_real="unknown.tester@demo.local",
         base_subject="离职流程 — 张三 — 设备归还待处理",
         body_html="<p>正文 HTML</p>",
         body_text="正文 text",
         role="it_admin",
-        username="it.charlie",
+        username="unknown.tester",
         settings=settings,
     )
 
@@ -123,7 +124,7 @@ def test_build_message_to_is_envelope_delivery_to_not_real() -> None:
     msg = _build_message(envelope, settings)
     assert msg["To"] == envelope.delivery_to
     assert envelope.delivery_to == "demo@qq.com"  # demo 模式覆写
-    assert envelope.recipient_real == "it.charlie@demo.local"  # 真值审计
+    assert envelope.recipient_real == "unknown.tester@demo.local"  # 真值审计
 
 
 @pytest.mark.unit
