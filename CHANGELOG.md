@@ -11,6 +11,56 @@
 
 ## [Unreleased]
 
+### Phase 4 Slice 4D (2026-05-16) — outbox drain（in-process 事件驱动）+ 证据缺失检测 + Seed + alembic 0002
+
+**用户明确两条**：
+1. "不要轮询，改事件驱动"
+2. "事件驱动是机制上事件驱动不是数据库的事件驱动" — 用 `asyncio.Event` in-process，**不**用 DB LISTEN/NOTIFY 触发器
+3. "如果是消息中枢的话就是用事件来中转直接" — outbox 作为消息中枢，事件作为唤醒中转
+4. "记得加 debug 日志后期 debug 需要" — drain 链路加 DEBUG 级别 trace（cycle 计数 / 唤醒源 / 单行 dispatch 上下文）
+
+#### Added
+- `backend/migrations/versions/0002_evidence_missing_and_outbox_notify.py`：
+  - `node_states.evidence_missing` Boolean 列（TIMEOUT-02 评分点 #6）— 默认 false
+  - **注**：去掉 DB 触发器（最初实现，后按用户澄清改为 in-process 事件机制）
+- `backend/src/offboarding_flow/workers/` 新子包:
+  - `outbox_drain.py`：
+    - 模块级 `asyncio.Event` + `signal_outbox_pending()` API — 业务侧 commit 后调一次即唤醒 worker（in-process 机制层事件，**不**走 DB 触发器）
+    - `OutboxDrainWorker` 主循环：`asyncio.wait({signal_event, stop_event}, timeout=HEARTBEAT_SECONDS)` 三方择优唤醒
+    - `drain_once` 按 channel 分发到 EmailSender / MattermostSender；指数退避（60/120/240s）；attempts≥3 切 status=failed
+    - 优雅 stop（lifespan shutdown 5s wait_for）
+    - 全链路 DEBUG 日志：signal 调用 / cycle 计数 / 唤醒源（signal 或 heartbeat）/ 每行 dispatch begin
+  - `evidence_missing_detector.py`：`detect_evidence_missing(node)` — 显式标记优先 + result_text<5 字符兜底
+- `services/flow_service.py`：create_flow commit 后调 `signal_outbox_pending()` 闭环事件机制（导入失败容错 DEBUG）
+- `main.py` lifespan：起 OutboxDrainWorker asyncio task + shutdown 优雅 stop
+- `state_store/models.py` NodeState 加 `evidence_missing` 列
+- `scripts/seed_demo_data.py` 完整重写（215 行）— mattermostautodriver + 5 team + 8 user + Custom Attributes + AllowedUntrustedInternalConnections 校验 + `--create-flow` 触发首封邮件
+- `backend/pyproject.toml` deps：mattermostautodriver>=2.0,<3
+- 测试：unit 22 PASS（evidence_missing_detector 11 + outbox_drain 11，含 HEARTBEAT_SECONDS≥30s 防退化为轮询的保护断言）
+
+#### Architecture Decision — 机制层事件驱动（最终定型）
+- 决策 1：不轮询 — 移除 APScheduler 周期任务想法
+- 决策 2：**机制层 in-process** 事件，不用 DB LISTEN/NOTIFY（用户明确："事件驱动是机制上事件驱动不是数据库的事件驱动"）
+- 实现：`asyncio.Event` 模块级单例 + `signal_outbox_pending()` API
+- 触发链：业务 enqueue → commit → signal_outbox_pending → worker wake → drain_once
+- 60s 心跳兜底处理 signal 漏调用 / worker 重启窗口
+- 整个系统的事件链：用户点邮件 → token exchange → graph.invoke → 下一节点 enter waiting_human → enqueue + signal → outbox worker dispatch → 用户下一封邮件
+- 实时性 < 1ms 应用层延迟（vs 原 10s 轮询）
+
+#### REQ Status
+- NOTI-01 → Complete（outbox enqueue + 事件驱动 drain + 3 次重试）
+- TIMEOUT-02 → Complete（evidence_missing 列 + 检测 helper）
+- SEED-01 / SEED-02 / SEED-03 → Complete
+
+#### Deferred to Phase 6
+- TIMEOUT-01 完整 SLA 扫描 → Phase 6（NODE_TIMEOUT_HOURS env + 每分钟 timeout_scan job）
+- TIMEOUT-04 HR Dashboard 标签 → Phase 5（前端）
+
+#### 修 pre-existing test bug
+- `test_recover_main_cli_help_runnable` 硬编码 phase-2-offboarding worktree 路径 → 改 `Path(__file__).resolve().parents[1]` 自动定位
+
+---
+
 ### Phase 4.5 Complete (2026-05-16) — AutoNode + mock-archive-service 演示加分项
 
 **交付**：Phase 4.5 加分项落地（PRD §18 / REQ AUTO-01/02/03 全部 Complete）— 与 Phase 4 在独立 worktree 并行开发

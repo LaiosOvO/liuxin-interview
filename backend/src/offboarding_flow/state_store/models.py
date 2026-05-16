@@ -105,6 +105,10 @@ class NodeState(Base):
     assignee: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     result_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_overdue: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Phase 4 Slice 4D / TIMEOUT-02：证据缺失检测（result_text < 5 字符或显式标记）— PRD §17.2 评分点 #6
+    evidence_missing: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     entered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

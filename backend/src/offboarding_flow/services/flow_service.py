@@ -126,6 +126,14 @@ class FlowService:
         # 提交业务事务
         await self.session.commit()
 
+        # Phase 4 Slice 4D: commit 后立即唤醒 outbox worker（in-process 事件驱动，非轮询）
+        try:
+            from offboarding_flow.workers.outbox_drain import signal_outbox_pending
+
+            signal_outbox_pending()
+        except Exception as sig_exc:
+            logger.debug("[flow_service] signal_outbox_pending no-op: %s", sig_exc)
+
         # Step 2: 启动 graph — 跑到 manager_review interrupt 挂起
         initial_state: OffboardingState = {
             "flow_id": str(flow.id),

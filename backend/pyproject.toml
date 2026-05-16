@@ -36,6 +36,8 @@ dependencies = [
   # Phase 4 / Slice 4A: 通知（SMTP + HTML 模板）
   "aiosmtplib>=3.0,<5",
   "jinja2>=3.1,<4",
+  # Phase 4 / Slice 4D: Seed 脚本（同步 Mattermost SDK）
+  "mattermostautodriver>=2.0,<3",
 ]
 
 [project.optional-dependencies]

@@ -56,7 +56,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] graph build failed (will continue): %s", e)
 
+    # Phase 4 Slice 4D — 起 OutboxDrainWorker（事件驱动 LISTEN/NOTIFY + 60s 心跳）
+    outbox_worker = None
+    outbox_task = None
+    try:
+        import asyncio
+
+        from offboarding_flow.workers import OutboxDrainWorker
+
+        outbox_worker = OutboxDrainWorker(settings)
+        outbox_task = asyncio.create_task(outbox_worker.run())
+        app.state.outbox_worker = outbox_worker
+        app.state.outbox_task = outbox_task
+        logger.info("[lifespan] outbox drain worker started (event-driven)")
+    except Exception as e:
+        logger.warning("[lifespan] outbox worker start failed (will continue): %s", e)
+
     yield
+
+    # Phase 4 Slice 4D — 优雅停止 outbox worker
+    if outbox_worker is not None and outbox_task is not None:
+        try:
+            await outbox_worker.stop()
+            await asyncio.wait_for(outbox_task, timeout=5.0)
+            logger.info("[lifespan] outbox drain worker stopped")
+        except Exception as e:
+            logger.warning("[lifespan] outbox worker stop error: %s", e)
 
     # 关闭
     logger.info("[lifespan] shutdown")

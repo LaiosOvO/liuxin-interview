@@ -26,7 +26,7 @@
 
 ### 通知（Phase 4，双通道）
 
-- [~] **NOTI-01**: 节点进入 `waiting_human` 时通过 `notification_outbox` 表 + APScheduler `outbox_drain` 异步发送邮件（QQ 邮箱 smtp.qq.com:465 SSL）*(Slice 4A: outbox 入队 + EmailSender 完成；APScheduler drain 待 Slice 4D)*
+- [x] **NOTI-01**: 节点进入 `waiting_human` 时通过 `notification_outbox` 表 + **事件驱动** outbox drain（PG LISTEN/NOTIFY + 60s 心跳兜底）异步发送邮件（QQ 邮箱 smtp.qq.com:465 SSL）— 不阻塞节点函数 *(Slice 4A: 入队 + EmailSender；Slice 4D: 事件驱动 drain + 3 次指数退避重试)*
 - [x] **NOTI-02**: 同时通过 Mattermost Bot Personal Access Token 推送 Interactive Message 卡片（Slice 4B — `notifications/mattermost_sender.py`）
 - [x] **NOTI-03**: 演示模式 (`APP_MODE=demo`) 下所有邮件路由到 `DEMO_INBOX=1624456575@qq.com`，主题前缀加角色标签 `[设备管理员·it.charlie]`，正文加横幅 *(Slice 4A: EmailEnvelope 收口完成)*
 - [x] **NOTI-04**: 通知发送 / 失败 / 重试记录写入 `notifications` 表；outbox 表加 `UNIQUE(flow_id, node_state_id, channel)` 保证幂等 *(Slice 4A: outbox 表 UNIQUE 约束 + OutboxRepository ON CONFLICT 幂等入队完成；notifications 表写入待 Slice 4D drain)*
@@ -51,7 +51,7 @@
 ### 任务逾期与证据缺失（Phase 4 部分 + Phase 6 完善）
 
 - [ ] **TIMEOUT-01**: 节点 SLA = `NODE_TIMEOUT_HOURS` env（默认 24h，演示用 `DEMO_TIMEOUT_OVERRIDE_HOURS=0.05`）；APScheduler `timeout_scan` 每分钟标记 `node_states.is_overdue=True`（PRD §17.1）
-- [ ] **TIMEOUT-02**: **证据缺失检测** — `result_text` 长度 < 5 字符 或显式标记 `evidence_missing=True`；AI 报告中标 "⚠️ 节点 result_text 为空 / 内容过短，疑似证据缺失"（PRD §17.2，评分点 #6）
+- [x] **TIMEOUT-02**: **证据缺失检测** — `result_text` 长度 < 5 字符 或显式标记 `evidence_missing=True`；AI 报告中标 "⚠️ 节点 result_text 为空 / 内容过短，疑似证据缺失" *(Slice 4D: workers/evidence_missing_detector + alembic 0002 加列)*（PRD §17.2，评分点 #6）
 - [ ] **TIMEOUT-03**: Mattermost `@offboarding-bot simulate-timeout` / `simulate-evidence-missing` 命令支持立即触发，方便演示（PRD §17.1 + §17.2）
 - [ ] **TIMEOUT-04**: HR Dashboard 节点旁显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签
 
