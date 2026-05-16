@@ -1,4 +1,8 @@
-"""test_graph_topology.py — 校验 Phase 2 完整 10 节点 graph 拓扑结构。"""
+"""test_graph_topology.py — 校验 graph 拓扑结构（Phase 2 + Phase 4.5）。
+
+Phase 4.5 变化（PRD §18）：节点数 10 → 11（新增 auto_archive_to_storage 自动节点）；
+applicant_final_confirm advance 不再直接到 archive，先到 auto_archive_to_storage。
+"""
 
 from __future__ import annotations
 
@@ -11,18 +15,20 @@ from offboarding_flow.flow_engine.nodes import (
     APPLICANT_FINAL_CONFIRM_NODE_NAME,
     APPLY_NODE_NAME,
     ARCHIVE_NODE_NAME,
+    AUTO_ARCHIVE_TO_STORAGE_NODE_NAME,
     HR_FINAL_NODE_NAME,
     HR_INITIAL_NODE_NAME,
     MANAGER_REVIEW_NODE_NAME,
     PARALLEL_NODES_META,
 )
 
-EXPECTED_10_NODES = {
+EXPECTED_NODES = {
     APPLY_NODE_NAME,
     MANAGER_REVIEW_NODE_NAME,
     HR_INITIAL_NODE_NAME,
     HR_FINAL_NODE_NAME,
     APPLICANT_FINAL_CONFIRM_NODE_NAME,
+    AUTO_ARCHIVE_TO_STORAGE_NODE_NAME,  # Phase 4.5（PRD §18）
     ARCHIVE_NODE_NAME,
     *[m[0] for m in PARALLEL_NODES_META],
 }
@@ -33,12 +39,12 @@ def builder():
     return _build_state_graph()
 
 
-def test_graph_has_10_nodes(builder):
-    """10 节点全部注册（5 单线 + 5 并行 = 10，含 apply / archive / 申请人 / hr_initial / hr_final / manager_review）。"""
+def test_graph_has_12_nodes(builder):
+    """12 节点全部注册（7 单线 + 5 并行 = 12；Phase 4.5 加 auto_archive_to_storage）。"""
     node_names = set(builder.nodes.keys())
     assert (
-        node_names == EXPECTED_10_NODES
-    ), f"expected {sorted(EXPECTED_10_NODES)}, got {sorted(node_names)}"
+        node_names == EXPECTED_NODES
+    ), f"expected {sorted(EXPECTED_NODES)}, got {sorted(node_names)}"
 
 
 def test_parallel_nodes_registered(builder):
@@ -88,15 +94,40 @@ def test_all_parallel_nodes_edge_to_hr_final(builder):
 
 
 def test_graph_node_count_matches_expected():
-    """10 节点（精确）：6 串行 + 5 并行 - 1 重叠（无）= 11，但精确 5 并行 + 6 单线 = 11..."""
-    # Actually 6 串行 (apply, manager_review, hr_initial, hr_final, applicant, archive) + 5 并行 = 11
-    # Wait: apply / manager_review / hr_initial / hr_final / applicant / archive = 6
-    # 5 并行 = 5
-    # Total = 11
-    expected_count = 6 + 5  # 11 节点
-    assert (
-        len(EXPECTED_10_NODES) == expected_count
-    ), f"EXPECTED_10_NODES 实际 {len(EXPECTED_10_NODES)} 节点"
+    """11 节点：7 串行 + 5 并行 - 1 重叠 = 11（Phase 4.5 加分项 PRD §18）。
+
+    7 串行 = apply / manager_review / hr_initial / hr_final / applicant / auto_archive_to_storage / archive
+    5 并行 = device_return / access_revoke / knowledge_handover / finance_settle / legal_sign
+    重叠为 0 → 总 12 ... 等等 7 + 5 = 12？再算：
+    serial = apply, manager_review, hr_initial, hr_final, applicant, auto_archive, archive = 7
+    parallel = 5
+    total = 12 nodes
+    """
+    expected_count = 7 + 5  # 12 节点（Phase 4.5 加 auto_archive_to_storage）
+    assert len(EXPECTED_NODES) == expected_count, f"EXPECTED_NODES 实际 {len(EXPECTED_NODES)} 节点"
+
+
+def test_graph_auto_archive_edges_to_archive(builder):
+    """Phase 4.5：auto_archive_to_storage → archive 直接边。"""
+    edges = list(builder.edges)
+    assert any(
+        f == AUTO_ARCHIVE_TO_STORAGE_NODE_NAME and t == ARCHIVE_NODE_NAME for f, t in edges
+    ), f"auto_archive_to_storage → archive 缺失，edges={edges}"
+
+
+def test_graph_applicant_no_longer_directly_to_archive(builder):
+    """Phase 4.5：applicant_final_confirm 不再直接 add_edge 到 archive（中间插了 auto_archive_to_storage）。
+
+    注意：add_conditional_edges 不会出现在 .edges；本测试只校验「无条件 add_edge」级别
+    确实没有 applicant → archive。
+    """
+    edges = list(builder.edges)
+    direct = [
+        (f, t)
+        for f, t in edges
+        if f == APPLICANT_FINAL_CONFIRM_NODE_NAME and t == ARCHIVE_NODE_NAME
+    ]
+    assert direct == [], f"applicant → archive 直接边应已移除 (中间插 auto_archive)，实际={direct}"
 
 
 async def test_graph_runs_apply_then_interrupts_at_manager_review():

@@ -1,6 +1,6 @@
-"""StateGraph 构建 + 全局单例（Phase 2 Plan 05 完整版）。
+"""StateGraph 构建 + 全局单例（Phase 2 Plan 05 + Phase 4.5 拓扑插入）。
 
-完整拓扑（PRD §4.1 DAG + 02-CONTEXT §4）：
+完整拓扑（PRD §4.1 DAG + 02-CONTEXT §4 + PRD §18 加分项）：
     START → apply → manager_review ──reject→ END
                         ↓ advance
                     hr_initial ──return→ apply  ──reject→ END
@@ -15,6 +15,8 @@
                         ↓ advance
                 applicant_final_confirm ──return→ hr_final
                         ↓ advance
+                auto_archive_to_storage   ← Phase 4.5 新增（PRD §18，AutoNode 演示）
+                        ↓ (失败 raise → 流程卡住等运维介入)
                     archive → END
 """
 
@@ -31,6 +33,7 @@ from .nodes import (
     APPLICANT_FINAL_CONFIRM_NODE_NAME,
     APPLY_NODE_NAME,
     ARCHIVE_NODE_NAME,
+    AUTO_ARCHIVE_TO_STORAGE_NODE_NAME,
     HR_FINAL_NODE_NAME,
     HR_INITIAL_NODE_NAME,
     MANAGER_REVIEW_NODE_NAME,
@@ -38,6 +41,7 @@ from .nodes import (
     applicant_final_confirm_node,
     apply_node,
     archive_node,
+    auto_archive_to_storage_node,
     hr_final_node,
     hr_initial_node,
     manager_review_node,
@@ -87,6 +91,8 @@ def _build_state_graph() -> StateGraph:
         b.add_node(name, fn)
     b.add_node(HR_FINAL_NODE_NAME, hr_final_node)
     b.add_node(APPLICANT_FINAL_CONFIRM_NODE_NAME, applicant_final_confirm_node)
+    # Phase 4.5 加分项（PRD §18）：在 applicant 与 archive 之间插入 auto_archive_to_storage
+    b.add_node(AUTO_ARCHIVE_TO_STORAGE_NODE_NAME, auto_archive_to_storage_node)
     b.add_node(ARCHIVE_NODE_NAME, archive_node)
 
     # ---- 2. 入口边 ----
@@ -124,15 +130,19 @@ def _build_state_graph() -> StateGraph:
         },
     )
 
-    # ---- 7. applicant_final_confirm 两态条件边 ----
+    # ---- 7. applicant_final_confirm 两态条件边（Phase 4.5：advance 改到 auto_archive_to_storage）----
     b.add_conditional_edges(
         APPLICANT_FINAL_CONFIRM_NODE_NAME,
         route_after_applicant,
         {
             HR_FINAL_NODE_NAME: HR_FINAL_NODE_NAME,
-            ARCHIVE_NODE_NAME: ARCHIVE_NODE_NAME,
+            AUTO_ARCHIVE_TO_STORAGE_NODE_NAME: AUTO_ARCHIVE_TO_STORAGE_NODE_NAME,
         },
     )
+
+    # ---- 7.5 Phase 4.5：auto_archive_to_storage → archive（成功后直接进归档）----
+    # 失败时节点函数 raise → graph.ainvoke 失败 → 流程卡住等运维介入（不自动绕过）
+    b.add_edge(AUTO_ARCHIVE_TO_STORAGE_NODE_NAME, ARCHIVE_NODE_NAME)
 
     # ---- 8. archive → END ----
     b.add_edge(ARCHIVE_NODE_NAME, END)
@@ -161,7 +171,7 @@ async def build_graph(use_memory_saver: bool = False) -> Any:
 
     _graph = builder.compile(checkpointer=saver)
     logger.info(
-        "[graph] built and compiled with 10 nodes (saver=%s)",
+        "[graph] built and compiled with 11 nodes (saver=%s) — Phase 4.5 含 auto_archive_to_storage",
         type(saver).__name__,
     )
     return _graph
