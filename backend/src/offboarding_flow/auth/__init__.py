@@ -9,7 +9,9 @@ Public API：
 
 from __future__ import annotations
 
+from .cookie import clear_session_cookie, set_session_cookie
 from .deep_link import build_deep_link
+from .deps import get_current_user, get_redis_dep, require_role
 from .errors import (
     AuthError,
     ExpiredTokenError,
@@ -24,7 +26,9 @@ from .jti_service import (
 )
 from .jwt_service import decode, decode_session, encode, encode_session
 from .redis_client import dispose_redis, get_redis
+from .role_router import resolve_redirect
 from .schemas import JWTPayload, SessionPayload
+from .session_service import ExchangeResult, exchange_token
 
 __all__ = [
     # errors
@@ -49,4 +53,16 @@ __all__ = [
     "is_jti_consumed",
     "register_node_token",
     "invalidate_node_tokens",
+    # cookie
+    "set_session_cookie",
+    "clear_session_cookie",
+    # role
+    "resolve_redirect",
+    # session
+    "ExchangeResult",
+    "exchange_token",
+    # deps
+    "get_redis_dep",
+    "get_current_user",
+    "require_role",
 ]

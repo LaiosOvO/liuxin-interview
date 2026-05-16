@@ -41,6 +41,21 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=err("请求参数校验失败", meta={"errors": exc.errors()}),
         )
 
+    # Phase 3 — auth AuthError 全局 handler：对外统一 detail，server log 写 reason
+    from offboarding_flow.auth.errors import AuthError
+
+    @app.exception_handler(AuthError)
+    async def auth_error_handler(request: Request, exc: AuthError) -> JSONResponse:
+        logger.warning(
+            "[auth_error] reason=%s path=%s",
+            exc.reason,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=err(exc.detail, meta={"status_code": exc.status_code}),
+        )
+
     @app.exception_handler(Exception)
     async def generic_handler(req: Request, exc: Exception) -> JSONResponse:
         logger.exception("[unhandled] %s %s — %s", req.method, req.url.path, exc)
