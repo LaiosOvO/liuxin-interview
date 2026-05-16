@@ -99,5 +99,6 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
   "e2e: 需要真后端容器，默认 skip（OFFBOARDING_E2E_BASE_URL 环境变量启用）",
+  "integration: 真 PG + 真 graph 集成测试，默认 skip（TEST_DATABASE_URL 环境变量启用）",
 ]
-addopts = "-m 'not e2e'"
+addopts = "-m 'not e2e and not integration'"

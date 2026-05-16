@@ -10,12 +10,12 @@
 
 ### 流程引擎（Phase 1 + 2）
 
-- [ ] **FLOW-01**: 离职流程 DAG 用 LangGraph StateGraph 定义，10 个节点 + 并行扇出扇入（apply → manager_review → hr_initial → [device_return ∥ access_revoke ∥ knowledge_handover ∥ finance_settle ∥ legal_sign] → hr_final → applicant_final_confirm → archive）
-- [ ] **FLOW-02**: 节点函数自动同步写入业务表 `node_states` / `action_logs` / `flow_instances`，事务边界遵循 ARCHITECTURE §3 Pattern 1（业务事务 commit → 才 invoke LangGraph）
-- [ ] **FLOW-03**: 进程崩溃后能从 `AsyncPostgresSaver` checkpoint 恢复执行；`docker restart` 流程进度无丢失
-- [ ] **FLOW-04**: 每个人工节点统一为「自由文本 `result_text` + 三态决策 (advance / return / reject)」 — PRD §4.2 通用节点结构
-- [ ] **FLOW-05**: 三态决策的退回路径按流程模板配置；拒绝在 manager_review / hr_initial / hr_final 等关键节点触发流程终止
-- [ ] **FLOW-06**: 流程末尾的 `applicant_final_confirm` 节点自动聚合 `context.node_results[]` 渲染汇总邮件 — DF-02 ★★★★★
+- [x] **FLOW-01**: 离职流程 DAG 用 LangGraph StateGraph 定义，10 个节点 + 并行扇出扇入（apply → manager_review → hr_initial → [device_return ∥ access_revoke ∥ knowledge_handover ∥ finance_settle ∥ legal_sign] → hr_final → applicant_final_confirm → archive）
+- [x] **FLOW-02**: 节点函数自动同步写入业务表 `node_states` / `action_logs` / `flow_instances`，事务边界遵循 ARCHITECTURE §3 Pattern 1（业务事务 commit → 才 invoke LangGraph）
+- [x] **FLOW-03**: 进程崩溃后能从 `AsyncPostgresSaver` checkpoint 恢复执行；`docker restart` 流程进度无丢失
+- [x] **FLOW-04**: 每个人工节点统一为「自由文本 `result_text` + 三态决策 (advance / return / reject)」 — PRD §4.2 通用节点结构
+- [x] **FLOW-05**: 三态决策的退回路径按流程模板配置；拒绝在 manager_review / hr_initial / hr_final 等关键节点触发流程终止
+- [x] **FLOW-06**: 流程末尾的 `applicant_final_confirm` 节点自动聚合 `context.node_results[]` 渲染汇总邮件 — DF-02 ★★★★★
 
 ### 鉴权与深链（Phase 3）
 
@@ -128,12 +128,12 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FLOW-01 | Phase 1 + 2 | Pending |
-| FLOW-02 | Phase 2 | Pending |
-| FLOW-03 | Phase 1 | Pending |
-| FLOW-04 | Phase 2 | Pending |
-| FLOW-05 | Phase 2 | Pending |
-| FLOW-06 | Phase 2 | Pending |
+| FLOW-01 | Phase 1 + 2 | Complete |
+| FLOW-02 | Phase 2 | Complete |
+| FLOW-03 | Phase 1 | Complete |
+| FLOW-04 | Phase 2 | Complete |
+| FLOW-05 | Phase 2 | Complete |
+| FLOW-06 | Phase 2 | Complete |
 | AUTH-01 | Phase 3 | Pending |
 | AUTH-02 | Phase 3 | Pending |
 | AUTH-03 | Phase 3 | Pending |

@@ -11,6 +11,79 @@
 
 ## [Unreleased]
 
+### Added (Phase 2)
+
+- 2026-05-16 — Phase 2 Plan 06：全流程 E2E 测试 + recover 工具集成测试
+  - `tests/e2e/conftest.py`：复用 app_client fixture（HTTP / inline ASGI 双模式）
+  - `tests/e2e/test_full_10_nodes_flow.py`：主路径 10 节点 happy-path
+  - `tests/e2e/test_e2e_reject_paths.py`：3 个 reject 场景（manager / hr_initial / hr_final）
+  - `tests/e2e/test_e2e_return_paths.py`：2 个 return 场景（hr_initial / applicant）
+  - `tests/e2e/test_e2e_recover_from_db.py`：双写失败 → recover → 继续推进
+  - `tests/integration/test_flow_full_chain.py`：真 PG + 真 PostgresSaver 双层一致性
+  - `pyproject.toml` 注册 `integration` marker；默认 skip e2e + integration（通过环境变量启用）
+
+### Phase 2 Complete (2026-05-16)
+
+**交付**：
+- ✓ 双写规范完整版（PRD §5.3.1 + PITFALLS #2）：业务事务 commit → graph.ainvoke → 失败 mark action_log.failed + raise HTTPException(500) + recover 提示
+- ✓ scripts/recover_from_db.py CLI（--flow-id / --dry-run / --max-retries）
+- ✓ flow_instances.context.node_results JSONB 应用层冗余（不依赖 LangGraph state）
+- ✓ 10 节点全部实现：apply / manager_review / hr_initial / device_return / access_revoke / knowledge_handover / finance_settle / legal_sign / hr_final / applicant_final_confirm / archive
+- ✓ 5 并行节点 fan-out（LangGraph 1.x Send）+ fan-in（自动 wait-all）
+- ✓ 申请人最终确认节点（DF-02 ★★★★★）+ timeline 注入 interrupt payload + 两态决策（reject 防御性回退）
+- ✓ 退回路径配置：hr_initial return → apply；applicant return → hr_final；hr_final return → device_return（v1 简化）
+- ✓ 拒绝路径配置：manager_review / hr_initial / hr_final reject → END + flow.status=rejected
+- ✓ services/timeline_renderer.py：纯函数渲染人类可读时间线（Phase 4 邮件 + E2E 复用）
+- ✓ _human_node_factory：5 并行节点用工厂模板复用（每节点 < 20 行）
+- ✓ routes.py：4 路由函数 + 节点名常量集中（避免循环 import）
+- ✓ 126 测试（unit + 部分 integration / e2e skip）— Phase 1 35 + Phase 2 91 新增
+
+**Phase 2 验收对应**（ROADMAP §Phase 2 Success Criteria）：
+1. ✓ graph.invoke 抛异常 → action_logs.status='failed' → recover 可重试（test_e2e_recover_from_db + test_node_service_double_write）
+2. ✓ 申请人节点 timeline 注入 interrupt payload（test_applicant_final_confirm）+ render_timeline 渲染完整 10 节点（test_timeline_renderer）
+3. ✓ 退回路径正确（test_routes + test_e2e_return_paths）
+4. ✓ 拒绝路径正确（test_routes + test_e2e_reject_paths）
+5. ✓ 5 并行 fan-in（test_graph_topology + test_full_10_nodes_flow）
+
+**Phase 2 不做的（已推到对应 phase）**：
+- 鉴权 / JWT 一键登录 → Phase 3
+- 邮件 / Mattermost / 真实通知发送 → Phase 4
+- LLM 摘要（applicant 节点本 Phase 只准备 timeline）→ Phase 4
+- 节点首次进入业务表自动 upsert（Plan 05 部分实现，完整版 Phase 4 配合通知场景再调整）
+
+- 2026-05-16 — Phase 2 Plan 05：graph.py 总装 10 节点完整拓扑
+  - apply → manager_review → hr_initial → 5 并行 (fan-out via Send) → hr_final → applicant_final_confirm → archive → END
+  - `_route_after_hr_initial_to_parallel` 用 LangGraph 1.x `Send(node, state)` 实现 dynamic fan-out
+  - 5 并行节点自动 fan-in（`add_edge(name, hr_final)` 多源默认 wait-all）
+  - 退回 / 拒绝路径路由完整生效
+  - `test_graph_topology.py`：9 测试（10 节点 / 5 并行 / archive→END / start→apply / fan-in / 编译 / 节点数 / manager_review interrupt）
+  - 调整 `test_api_flows.test_advance_action_completes_manager_review_node`：Phase 2 拓扑下 manager_review 不再是末节点
+
+- 2026-05-16 — Phase 2 Plan 04：applicant_final_confirm（DF-02 ★★★★★）+ archive + timeline_renderer
+  - `flow_engine/nodes/applicant_final_confirm.py`：interrupt payload 含 timeline；两态决策（advance / return），reject 防御性回退到 advance；默认 actor=申请人；默认 result_text 视 action 而定
+  - `flow_engine/nodes/archive.py`：自动节点（无 interrupt），actor=system:archivist
+  - `services/timeline_renderer.py`：纯函数渲染人类可读时间线（前端 + Phase 4 邮件复用）
+  - 24 测试：14 renderer + 7 applicant 节点 + 3 archive
+
+- 2026-05-16 — Phase 2 Plan 03：5 并行节点 + _human_node_factory 工厂
+  - `flow_engine/nodes/_human_node_factory.py`：人工节点通用模板（interrupt + decision + node_results）
+  - 5 节点：device_return / access_revoke / knowledge_handover / finance_settle / legal_sign
+  - `flow_engine/nodes/__init__.py` 暴露 `PARALLEL_NODES_META` 给 graph 总装
+  - 20 测试：5 节点 × 3 行为（interrupt / advance / return）+ 5 元数据校验
+
+- 2026-05-16 — Phase 2 Plan 02：hr_initial + hr_final 两个串行节点 + 路由函数模块
+  - `flow_engine/nodes/hr_initial.py` / `hr_final.py`：interrupt + 三态决策模板
+  - `flow_engine/routes.py`：4 路由函数（after_manager_review / after_hr_initial / after_hr_final / after_applicant）+ 11 节点名常量 + PARALLEL_NODES list
+  - 23 测试：17 路由单测（覆盖每个分支）+ 6 节点 interrupt 行为单测
+
+- 2026-05-16 — Phase 2 Plan 01：双写规范完整化（失败补偿 + node_results 应用层冗余 + recover_from_db.py CLI）
+  - `ActionStatus` 新增 `PENDING`；`ActionRepository.mark_failed` / `mark_success` / `list_failed` 方法
+  - `FlowRepository.append_node_result` 写 `flow_instances.context.node_results` JSONB 数组（业务层冗余，不依赖 LangGraph state）
+  - `NodeService.submit_action` 升级：失败时 mark `action_log.failed` + 错误信息 + `raise HTTPException(500)` 含 recover 提示；成功时 mark success + graph 到 END 时 mark flow completed
+  - `state_store/session.py` 暴露 `new_session()` 上下文管理器供失败补偿新开 session
+  - `scripts/recover_from_db.py`：扫 failed action 重 invoke graph，支持 `--flow-id` / `--dry-run` / `--max-retries`
+  - 测试：5 个 state_store 签名校验 + 5 个 double_write 集成测试（含 graph 失败 → action_log.failed 校验）+ 5 个 recover_from_db 单测
+
 ### Phase 1 Complete (2026-05-16)
 
 **交付**：

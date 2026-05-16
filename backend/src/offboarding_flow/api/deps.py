@@ -18,7 +18,7 @@ from offboarding_flow.state_store.repositories import (
     FlowRepository,
     NodeRepository,
 )
-from offboarding_flow.state_store.session import get_sessionmaker
+from offboarding_flow.state_store.session import get_sessionmaker, new_session
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -59,5 +59,13 @@ def get_node_service(
     node_repo: Annotated[NodeRepository, Depends(get_node_repo)],
     action_repo: Annotated[ActionRepository, Depends(get_action_repo)],
 ) -> NodeService:
+    """Phase 2 Plan 01：注入 session_factory（new_session）供失败补偿使用。"""
     graph = get_graph()
-    return NodeService(session, flow_repo, node_repo, action_repo, graph)
+    return NodeService(
+        session=session,
+        flow_repo=flow_repo,
+        node_repo=node_repo,
+        action_repo=action_repo,
+        graph=graph,
+        session_factory=new_session,
+    )
