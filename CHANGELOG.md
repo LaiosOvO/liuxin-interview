@@ -11,6 +11,79 @@
 
 ## [Unreleased]
 
+### Phase 6 (2026-05-16) — 部署 + nginx 反代 + timeout_scan + 运维脚本 + 演示 runbook
+
+**交付**：DEPLOY-01/02/03/04/05 + NOTI-05 + TIMEOUT-01 全部 Complete
+
+#### Added — 部署基础设施（DEPLOY-01/02/03）
+- `deploy/nginx/nginx.conf` — 反代配置：
+  - `location ^~ /api/` → flow-api:8000（PITFALLS #20 优先级修正 — `^~` 防 `location /` SPA 兜底吞掉 API）
+  - `location ^~ /ws/` 透传 WebSocket（v1 备用）
+  - `location /` + `try_files $uri $uri.html $uri/index.html /index.html` 静态前端 + SPA 客户端路由兜底
+  - `log_format access_no_query` 不记录 query string（PITFALLS #13 防 deeplink token 进日志）
+  - upstream keepalive 16 + proxy_buffering off（流式响应实时）
+- `deploy/nginx/Dockerfile` — nginx:1.27-alpine + 占位 index.html + 50x 错误页；Phase 5 frontend/out 挂载后无需重建
+- `docker-compose.yml` 增量 add：
+  - `nginx` 服务（depends_on flow-api healthy + healthcheck /nginx-health + restart unless-stopped）
+  - `frontend-build` 一次性 build 容器（profiles: build；docker compose --profile build run frontend-build）
+  - flow-api env 新增 `NODE_TIMEOUT_HOURS` + `DEMO_TIMEOUT_OVERRIDE_HOURS`
+  - DEEPLINK_BASE_URL 默认改 `http://192.168.2.44`（SUMMARY R1 — 无 :3000）
+
+#### Added — 超时扫描（NOTI-05 + TIMEOUT-01）
+- `backend/src/offboarding_flow/workers/timeout_scan.py`（PRD §17.1）：
+  - `compute_sla_hours(settings)` 优先级：demo 模式 + DEMO_TIMEOUT_OVERRIDE_HOURS 已设 → 用 override；否则 NODE_TIMEOUT_HOURS（24h 默认）
+  - `find_overdue_nodes(session, settings)` SELECT `status='waiting_human' AND entered_at < threshold`
+  - `enqueue_timeout_reminders(session, nodes, settings)`：
+    1. _mark_overdue 标 is_overdue=True（幂等）
+    2. _has_been_reminded 防重发（action_log action='timeout_remind_sent'）
+    3. 查 user.email + enqueue outbox email（recipient=assignee；演示模式 envelope 层覆写到 DEMO_INBOX）
+    4. node_state_id=None 入队避开 UNIQUE 与首次通知冲突
+    5. 写 action_log 幂等标识 + 唤醒 outbox drain
+  - `TimeoutScanWorker` 60s 心跳 + 优雅 stop（与 OutboxDrainWorker 同 pattern）
+- `backend/src/offboarding_flow/config.py` 新增 3 个字段：`node_timeout_hours` (24.0) / `demo_timeout_override_hours` (None) / `timeout_scan_interval_seconds` (60.0)
+- `backend/src/offboarding_flow/main.py` lifespan — 与 OutboxDrainWorker 并列起 task；顺序 start outbox → start timeout / stop timeout → stop outbox（让最后一批 outbox 仍能 drain）
+
+#### Added — 运维脚本（DEPLOY-03/04）
+- `scripts/dev_reset.sh` — PITFALLS #9 双重保护：交互确认（RESET/yes） + 自动 pg_dump.gz 备份到 `/tmp/offboarding-pgdump-YYYYMMDD-HHMMSS.sql.gz` + docker compose down -v 才执行
+- `scripts/cleanup_old_checkpoints.py` — PITFALLS #25：按业务表 status IN ('completed','rejected') 找已归档流程（updated_at < N 天）；级联删 langgraph.checkpoints/blobs/writes；--dry-run + --days N + --dsn 参数
+- `scripts/deploy_to_192_168_2_44.sh` — 一键部署：git pull → frontend-build → docker compose up -d --build → 等 health → alembic → checkpointer.setup → 可选 seed → smoke + nginx 探活；--no-frontend / --no-pull / --seed flag
+
+#### Added — 演示文档（DEMO 演示翻车防护）
+- `docs/DEMO_RUNBOOK.md`（PRD §15.0 评分点 1-9 对照表 + §16.4 启动话术 + §18.3 AutoNode 话术）：
+  - 启动顺序 4 步 + 手工分步备用
+  - 8 测试账号 → 3 真实邮箱映射表（PRD §9.1.3）
+  - 10 节点演示动作清单（按时间序）
+  - 5 大故障排查清单（已知问题 + 邮件没收到 + bot 不回复 + 演示前清空 + 紧急回滚）
+  - 演示前 30 分钟检查清单引用 E2E_CHECKLIST
+- `docs/E2E_CHECKLIST.md`：18 项"Looks Done But Isn't"检查（环境凭证 5 项 + 服务网络 5 项 + 数据库 3 项 + Seed 2 项 + 通知 2 项 + smoke 1 项 + 紧急逃生通道）
+
+#### Changed — .env.example
+- DEEPLINK_BASE_URL 默认值 `http://192.168.2.44`（删 :3000，SUMMARY R1 + PITFALLS #21）
+- 新增 Phase 6 节：`NODE_TIMEOUT_HOURS=24` / `DEMO_TIMEOUT_OVERRIDE_HOURS=` (空) / `TIMEOUT_SCAN_INTERVAL_SECONDS=60`
+- 新增演示模式邮箱映射段：`DEMO_INBOX_MAP=` (空，留待 a99b1cb commit 已有 DEMO_INBOX_MAP_DEFAULT 兜底)
+
+#### Tests
+- `backend/tests/test_timeout_scan.py` — 17 单元 PASS + 1 integration skip：
+  - `TestComputeSlaHours` × 5：默认 24h / demo override 优先 / prod 忽略 override / 自定义 / 0 边界
+  - `TestComputeThreshold` × 3：24h 计算 / demo 3 分钟 / now() 默认
+  - `TestFindOverdueNodes` × 2：空 / 返回超时节点
+  - `TestEnqueueTimeoutReminders` × 3：超时入队 + is_overdue + action_log；已发过 skip；payload schema 对齐 outbox_drain
+  - `TestScanOnce` × 2：无超时 / 端到端入队
+  - `TestTimeoutScanWorker` × 2：stop 优雅退出（< 1s） / _safe_scan 吞异常
+  - 集成测试 skip 占位（留待 testcontainers）
+
+#### REQ Status
+- NOTI-05 → Complete（每 60s timeout_scan + 重发提醒）
+- TIMEOUT-01 → Complete（NODE_TIMEOUT_HOURS env + DEMO_TIMEOUT_OVERRIDE_HOURS + 标 is_overdue）
+- DEPLOY-01 / DEPLOY-02 / DEPLOY-03 / DEPLOY-04 / DEPLOY-05 → Complete
+
+#### Deferred / 未在本 phase 范围
+- 前端 frontend/out 构建产物（Phase 5 在并行 worktree）
+- TIMEOUT-03 simulate-timeout / simulate-evidence-missing 命令 → Phase 4 BOT 已部分实现（待与 timeout_scan 集成 follow-up）
+- TIMEOUT-04 HR Dashboard 标签 → Phase 5（前端）
+
+---
+
 ### Phase 4 Slice 4D (2026-05-16) — outbox drain（in-process 事件驱动）+ 证据缺失检测 + Seed + alembic 0002
 
 **用户明确两条**：

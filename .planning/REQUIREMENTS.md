@@ -30,7 +30,7 @@
 - [x] **NOTI-02**: 同时通过 Mattermost Bot Personal Access Token 推送 Interactive Message 卡片（Slice 4B — `notifications/mattermost_sender.py`）
 - [x] **NOTI-03**: 演示模式 (`APP_MODE=demo`) 下所有邮件路由到 `DEMO_INBOX=1624456575@qq.com`，主题前缀加角色标签 `[设备管理员·it.charlie]`，正文加横幅 *(Slice 4A: EmailEnvelope 收口完成)*
 - [x] **NOTI-04**: 通知发送 / 失败 / 重试记录写入 `notifications` 表；outbox 表加 `UNIQUE(flow_id, node_state_id, channel)` 保证幂等 *(Slice 4A: outbox 表 UNIQUE 约束 + OutboxRepository ON CONFLICT 幂等入队完成；notifications 表写入待 Slice 4D drain)*
-- [ ] **NOTI-05**: 节点超时 (>24h) 后台 APScheduler `timeout_scan` job 每分钟扫描自动重发提醒给 assignee + HR（Phase 6 落地）
+- [x] **NOTI-05**: 节点超时 (>24h) 后台 APScheduler-like `timeout_scan` worker 每分钟扫描自动重发提醒给 assignee + HR *(Phase 6: workers/timeout_scan.py — 标 is_overdue + enqueue outbox + action_log 幂等防重发；与 OutboxDrainWorker 同 pattern；signal_outbox_pending 唤醒 drain)*
 
 ### LLM / AI 能力（Phase 4，v0.4 大幅扩展）
 
@@ -50,7 +50,7 @@
 
 ### 任务逾期与证据缺失（Phase 4 部分 + Phase 6 完善）
 
-- [ ] **TIMEOUT-01**: 节点 SLA = `NODE_TIMEOUT_HOURS` env（默认 24h，演示用 `DEMO_TIMEOUT_OVERRIDE_HOURS=0.05`）；APScheduler `timeout_scan` 每分钟标记 `node_states.is_overdue=True`（PRD §17.1）
+- [x] **TIMEOUT-01**: 节点 SLA = `NODE_TIMEOUT_HOURS` env（默认 24h，演示用 `DEMO_TIMEOUT_OVERRIDE_HOURS=0.05` 仅 demo 模式生效）；TimeoutScanWorker 每分钟标记 `node_states.is_overdue=True` *(Phase 6: compute_sla_hours 优先级 demo override > NODE_TIMEOUT_HOURS；prod 模式永远走 NODE_TIMEOUT_HOURS)*（PRD §17.1）
 - [x] **TIMEOUT-02**: **证据缺失检测** — `result_text` 长度 < 5 字符 或显式标记 `evidence_missing=True`；AI 报告中标 "⚠️ 节点 result_text 为空 / 内容过短，疑似证据缺失" *(Slice 4D: workers/evidence_missing_detector + alembic 0002 加列)*（PRD §17.2，评分点 #6）
 - [ ] **TIMEOUT-03**: Mattermost `@offboarding-bot simulate-timeout` / `simulate-evidence-missing` 命令支持立即触发，方便演示（PRD §17.1 + §17.2）
 - [ ] **TIMEOUT-04**: HR Dashboard 节点旁显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签
@@ -77,11 +77,11 @@
 
 ### 部署（Phase 1 骨架 + Phase 6 完善）
 
-- [ ] **DEPLOY-01**: Docker Compose 编排 postgres / redis / flow-api / nginx；业务用 `app` schema + LangGraph 用 `langgraph` schema 双 schema 隔离
-- [ ] **DEPLOY-02**: nginx 反代 `location ^~ /api/` → flow-api:8000；根路径 serve 前端静态产物 + `try_files /index.html` 兜底；`log_format` 不记录 query string 防 token 泄露
-- [ ] **DEPLOY-03**: 一条命令 `docker compose up -d` 在 192.168.2.44 启动全套服务；启动 log 显式打印 `APP_MODE`
-- [ ] **DEPLOY-04**: `.env.example` 模板覆盖所有必需配置（不含真值）；pre-commit gitleaks 钩子防密钥进 git
-- [ ] **DEPLOY-05**: entrypoint.sh: `alembic upgrade head` → `await checkpointer.setup()` → `uvicorn`；alembic env.py `include_object` 过滤 `schema == 'langgraph'`
+- [x] **DEPLOY-01**: Docker Compose 编排 postgres / redis / flow-api / nginx / mock-archive-service；业务用 `app` schema + LangGraph 用 `langgraph` schema 双 schema 隔离 *(Phase 6: 增量 add nginx + frontend-build 容器；Phase 1 已建 postgres/redis/flow-api；Phase 4.5 已加 mock-archive-service)*
+- [x] **DEPLOY-02**: nginx 反代 `location ^~ /api/` → flow-api:8000；根路径 serve 前端静态产物 + `try_files /index.html` 兜底；`log_format` 不记录 query string 防 token 泄露 *(Phase 6: deploy/nginx/nginx.conf — PITFALLS #13 + #20)*
+- [x] **DEPLOY-03**: 一条命令 `docker compose up -d` 在 192.168.2.44 启动全套服务；启动 log 显式打印 `APP_MODE` *(Phase 6: scripts/deploy_to_192_168_2_44.sh + APP_MODE log 已在 Phase 1 落地)*
+- [x] **DEPLOY-04**: `.env.example` 模板覆盖所有必需配置（不含真值）；pre-commit gitleaks 钩子防密钥进 git *(Phase 1 + Phase 6 增补 NODE_TIMEOUT_HOURS / DEMO_TIMEOUT_OVERRIDE_HOURS / DEMO_INBOX_MAP)*
+- [x] **DEPLOY-05**: entrypoint.sh: `alembic upgrade head` → `await checkpointer.setup()` → `uvicorn`；alembic env.py `include_object` 过滤 `schema == 'langgraph'` *(Phase 1 已落地)*
 
 ## v2 Requirements
 
@@ -142,7 +142,7 @@
 | NOTI-02 | Phase 4 (Slice 4B) | Complete |
 | NOTI-03 | Phase 4 (Slice 4A) | Complete (EmailEnvelope 演示模式收口 + 角色前缀 + 横幅) |
 | NOTI-04 | Phase 4 (Slice 4A) | Complete (outbox UNIQUE 约束 + ON CONFLICT 幂等入队) |
-| NOTI-05 | Phase 6 | Pending |
+| NOTI-05 | Phase 6 | Complete |
 | LLM-01 | Phase 4 / Slice 4C | Complete |
 | LLM-02 | Phase 4 / Slice 4C | Complete |
 | LLM-03 | Phase 4 / Slice 4C | Complete |
@@ -153,7 +153,7 @@
 | BOT-02 | Phase 4 (Slice 4B) | Complete |
 | BOT-03 | Phase 4 (Slice 4B) | Complete |
 | BOT-04 | Phase 4 (Slice 4B) | Complete |
-| TIMEOUT-01 | Phase 6 | Pending |
+| TIMEOUT-01 | Phase 6 | Complete |
 | TIMEOUT-02 | Phase 4 | Pending |
 | TIMEOUT-03 | Phase 4 | Pending |
 | TIMEOUT-04 | Phase 5 | Pending |
@@ -168,11 +168,11 @@
 | WEB-03 | Phase 5 | Pending |
 | WEB-04 | Phase 5 | Pending |
 | WEB-05 | Phase 5 | Pending |
-| DEPLOY-01 | Phase 1 + 6 | Pending |
-| DEPLOY-02 | Phase 6 | Pending |
-| DEPLOY-03 | Phase 6 | Pending |
-| DEPLOY-04 | Phase 1 | Pending |
-| DEPLOY-05 | Phase 1 + 6 | Pending |
+| DEPLOY-01 | Phase 1 + 6 | Complete |
+| DEPLOY-02 | Phase 6 | Complete |
+| DEPLOY-03 | Phase 6 | Complete |
+| DEPLOY-04 | Phase 1 + 6 | Complete |
+| DEPLOY-05 | Phase 1 + 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 45 total（v0.4 新增 14 项：LLM-04/05/06 + BOT-01/02/03/04 + TIMEOUT-01/02/03/04 + AUTO-01/02/03）
