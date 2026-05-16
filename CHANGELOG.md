@@ -11,6 +11,48 @@
 
 ## [Unreleased]
 
+### Phase 4.5 Complete (2026-05-16) — AutoNode + mock-archive-service 演示加分项
+
+**交付**：Phase 4.5 加分项落地（PRD §18 / REQ AUTO-01/02/03 全部 Complete）— 与 Phase 4 在独立 worktree 并行开发
+
+#### Added
+- `services/auto_node_service.py` — AutoNode 双写 helper（与 NodeService.submit_action 架构对称）：upsert node_states (status=done) + INSERT action_log (action=SYSTEM, actor=system:auto) + append flow.context.node_results；SUCCESS / FAILED 两条独立 path
+- `flow_engine/nodes/auto_archive_to_storage.py` — 演示自动节点：httpx async POST mock-archive-service + tenacity 3 次指数退避重试 + 失败 raise ArchiveServiceError
+- `mock-archive-service/` — FastAPI 极简归档服务（30 行 main.py + Dockerfile + requirements.txt + .dockerignore）：接收 POST /archive 写入 `/data/archive/{flow_id}.json`
+- graph.py 拓扑插入：applicant_final_confirm advance → auto_archive_to_storage → archive（保持 return → hr_final 不变）
+- 配置项 `archive_service_url` / `archive_service_timeout_seconds` / `archive_service_max_retries`（Pydantic Settings）
+- 测试三层（CLAUDE.md §2）：
+  - 单元 9 用例：AutoNodeService 双写 3 测试 + 节点函数 mock httpx 6 测试（含 tenacity 重试 + 5xx 边界 + flow_id 校验）
+  - 集成 2 用例：真 mock-archive-service subprocess（随机端口） + mock DB session — 成功路径 + 节点函数端到端
+  - 图结构 2 新增：auto_archive→archive 边 + applicant→archive 直接边移除校验
+
+#### Changed
+- `flow_engine/routes.py`：`route_after_applicant` advance 返回从 `ARCHIVE` 改为 `AUTO_ARCHIVE_TO_STORAGE`
+- `flow_engine/graph.py`：节点数 10 → 11（拓扑文档块更新；compile 日志改 11 nodes）
+- `flow_engine/nodes/__init__.py`：export AUTO_ARCHIVE_TO_STORAGE_NODE_* 常量 + `auto_archive_to_storage_node`
+- `services/__init__.py`：export `AutoNodeService`
+- `tests/test_graph_topology.py`：节点数预期从 11 升到 12（含 auto_archive）；新增 auto_archive→archive 边校验 + applicant→archive 直接边移除校验
+- `tests/test_routes.py`：route_after_applicant advance / reject / None 路径全部断言改为 AUTO_ARCHIVE_TO_STORAGE
+
+#### Infrastructure
+- `docker-compose.yml`：追加 mock-archive-service service（端口 5050:5000，volume `/data/offboarding/archive`，healthcheck）；flow-api `depends_on` 含 mock-archive-service service_healthy；flow-api environment 含 ARCHIVE_SERVICE_URL
+- `.env.example`：追加 Phase 4.5 段 3 个配置项占位
+- 与 Phase 4 worktree 并行无冲突：本 worktree 不动 notification_outbox / scheduler / Mattermost / GLM 模块
+
+#### REQ Status
+- AUTO-01 / AUTO-02 / AUTO-03 全部 Complete
+
+#### Architectural Insight（PRD §18.3 演示话术）
+> 「这里 auto_archive_to_storage 节点状态直接是 done，actor=system:auto，证明本架构同时支持人机交互节点（三态决策）和自动节点（API/Webhook）。未来要接 RPA 或者业务系统真实 API，模式完全一致：节点函数里调外部 API，双写业务表。但是 — 注意我故意没有把 device_return 等节点改成自动节点，因为：设备归还涉及法律责任必须人工签字；财务结算金额变动需要财务 review；法务签字本质是法律行为，AI / 自动节点无权代签。这就回到 §15.3 的 AI 边界声明：能不能自动做 ≠ 应不应该自动做。」
+
+#### Deferred to Future Phase
+- notification_outbox 集成（AutoNode 完成时也 enqueue 一条「自动执行」通知）→ Phase 4 落地 outbox 后再追加 stub 调用
+- 接真实业务系统 API（device_return 写回 / AD 权限回收 / 财务系统结算触发）→ v2（EXT-01/02/03）
+- 接 RPA 框架（UiPath / Browser-use）→ v3（PRD §18.4）
+- mock-archive-service 鉴权 / TLS / volume 持久化策略 → v2（生产化）
+
+---
+
 ### Phase 3 Complete (2026-05-16) — merged via worktree-phase-3-auth
 
 **交付**：Phase 3 鉴权 + 深链 JWT 一键登录 + jti 一次性消费完整落地（AUTH-01..04 全部 Complete）

@@ -59,12 +59,10 @@ def patch_service_and_post(monkeypatch):
         lambda *a, **kw: None,  # placeholder; tests override
     )
 
-    # 替换 AutoNodeService 类的实例化（用 sys.modules 路径）
-    import sys
+    # 强制 import service 模块（节点函数延迟 import — 测试 patch 前必须先 load）
+    from offboarding_flow.services import auto_node_service as mod_svc
 
-    mod_svc = sys.modules.get("offboarding_flow.services.auto_node_service")
-    if mod_svc:
-        monkeypatch.setattr(mod_svc, "AutoNodeService", lambda: fake_svc)
+    monkeypatch.setattr(mod_svc, "AutoNodeService", lambda: fake_svc)
     return captured
 
 

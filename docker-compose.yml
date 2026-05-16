@@ -54,10 +54,14 @@ services:
       LANGGRAPH_PG_CONNINFO: postgres://flow:${POSTGRES_PASSWORD}@offboarding-postgres:5432/offboarding
       REDIS_URL: redis://offboarding-redis:6379/0
       DEEPLINK_BASE_URL: ${DEEPLINK_BASE_URL:-http://192.168.2.44}
+      # Phase 4.5（PRD §18 加分项）: AutoNode 外部归档服务
+      ARCHIVE_SERVICE_URL: ${ARCHIVE_SERVICE_URL:-http://mock-archive-service:5000/archive}
     depends_on:
       offboarding-postgres:
         condition: service_healthy
       offboarding-redis:
+        condition: service_healthy
+      mock-archive-service:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -66,6 +70,28 @@ services:
       timeout: 3s
       retries: 5
       start_period: 30s
+    networks:
+      - offboarding-net
+
+  # Phase 4.5（PRD §18 加分项）: mock 外部归档服务（演示 AutoNode 调外部 HTTP API）
+  mock-archive-service:
+    build:
+      context: ./mock-archive-service
+    image: offboarding-mock-archive:latest
+    container_name: offboarding-mock-archive
+    ports:
+      - "5050:5000"
+    environment:
+      ARCHIVE_DATA_DIR: /data/archive
+    volumes:
+      - /data/offboarding/archive:/data/archive
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - offboarding-net
 
