@@ -16,7 +16,14 @@ from .errors import (
     InvalidTokenError,
     TokenAlreadyConsumedError,
 )
+from .jti_service import (
+    consume_jti,
+    invalidate_node_tokens,
+    is_jti_consumed,
+    register_node_token,
+)
 from .jwt_service import decode, decode_session, encode, encode_session
+from .redis_client import dispose_redis, get_redis
 from .schemas import JWTPayload, SessionPayload
 
 __all__ = [
@@ -35,4 +42,11 @@ __all__ = [
     "decode_session",
     # deep link
     "build_deep_link",
+    # redis / jti
+    "get_redis",
+    "dispose_redis",
+    "consume_jti",
+    "is_jti_consumed",
+    "register_node_token",
+    "invalidate_node_tokens",
 ]
