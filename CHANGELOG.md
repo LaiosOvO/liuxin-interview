@@ -13,6 +13,18 @@
 
 ### Added (Phase 2)
 
+- 2026-05-16 — Phase 2 Plan 04：applicant_final_confirm（DF-02 ★★★★★）+ archive + timeline_renderer
+  - `flow_engine/nodes/applicant_final_confirm.py`：interrupt payload 含 timeline；两态决策（advance / return），reject 防御性回退到 advance；默认 actor=申请人；默认 result_text 视 action 而定
+  - `flow_engine/nodes/archive.py`：自动节点（无 interrupt），actor=system:archivist
+  - `services/timeline_renderer.py`：纯函数渲染人类可读时间线（前端 + Phase 4 邮件复用）
+  - 24 测试：14 renderer + 7 applicant 节点 + 3 archive
+
+- 2026-05-16 — Phase 2 Plan 03：5 并行节点 + _human_node_factory 工厂
+  - `flow_engine/nodes/_human_node_factory.py`：人工节点通用模板（interrupt + decision + node_results）
+  - 5 节点：device_return / access_revoke / knowledge_handover / finance_settle / legal_sign
+  - `flow_engine/nodes/__init__.py` 暴露 `PARALLEL_NODES_META` 给 graph 总装
+  - 20 测试：5 节点 × 3 行为（interrupt / advance / return）+ 5 元数据校验
+
 - 2026-05-16 — Phase 2 Plan 02：hr_initial + hr_final 两个串行节点 + 路由函数模块
   - `flow_engine/nodes/hr_initial.py` / `hr_final.py`：interrupt + 三态决策模板
   - `flow_engine/routes.py`：4 路由函数（after_manager_review / after_hr_initial / after_hr_final / after_applicant）+ 11 节点名常量 + PARALLEL_NODES list

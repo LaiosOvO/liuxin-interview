@@ -2,5 +2,6 @@
 
 from .flow_service import FlowService
 from .node_service import NodeService
+from .timeline_renderer import render_timeline
 
-__all__ = ["FlowService", "NodeService"]
+__all__ = ["FlowService", "NodeService", "render_timeline"]
