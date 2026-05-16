@@ -1,0 +1,23 @@
+# 本地开发 override：用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up`
+# - 挂源码进容器实现热加载
+# - 用 demo / DEBUG 模式
+# - postgres / redis 仍用 ./docker-compose.yml 的定义
+services:
+  flow-api:
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/migrations:/app/migrations
+      - ./backend/alembic.ini:/app/alembic.ini
+    environment:
+      APP_MODE: demo
+      LOG_LEVEL: DEBUG
+    command:
+      [
+        "uvicorn",
+        "offboarding_flow.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]

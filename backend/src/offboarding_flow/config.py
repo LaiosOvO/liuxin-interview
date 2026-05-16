@@ -1,0 +1,85 @@
+"""全局配置 — 从 .env / 环境变量读取（Plan 05）。
+
+关键约定：
+- 用 BaseSettings 不要 dotenv 手动 load
+- get_settings() 用 lru_cache 单例（FastAPI Depends 友好）
+- postgres_dsn_sync 是 asyncpg DSN 去掉 +asyncpg → alembic offline 用
+- 启动 log 显式打印 APP_MODE（PITFALLS #10 防上线没切回 prod）
+"""
+
+from __future__ import annotations
+
+import logging
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """全局配置（从 .env 注入）。"""
+
+    # 应用基础
+    app_mode: Literal["demo", "prod"] = "demo"
+    app_host: str = "0.0.0.0"
+    app_port: int = 8000
+    log_level: str = "INFO"
+    app_version: str = "0.1.0"
+
+    # 数据库
+    postgres_password: str = "changeme_in_real_env"
+    postgres_dsn: str = (
+        "postgresql+asyncpg://flow:changeme_in_real_env@offboarding-postgres:5432/offboarding"
+    )
+    langgraph_pg_conninfo: str = (
+        "postgres://flow:changeme_in_real_env@offboarding-postgres:5432/offboarding"
+    )
+
+    # Redis（Phase 3 鉴权才真用，Phase 1 仅 health check）
+    redis_url: str = "redis://offboarding-redis:6379/0"
+
+    # 部署 URL（R1 待 Phase 6 修正 — 当前保持与原 .env.example 一致）
+    deeplink_base_url: str = "http://192.168.2.44:3000"
+
+    # Phase 3/4 占位（Phase 1 不读，但允许 .env 出现这些 key 不报错）
+    jwt_secret: str = Field(default="changeme_in_real_env", validate_default=False)
+    token_expiry_hours: int = 24
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def postgres_dsn_sync(self) -> str:
+        """sync DSN 用于 alembic offline 模式（去掉 +asyncpg 后缀）。"""
+        return self.postgres_dsn.replace("+asyncpg", "")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def is_demo(self) -> bool:
+        return self.app_mode == "demo"
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """单例 Settings — 启动后冻结。"""
+    settings = Settings()
+    logger = logging.getLogger(__name__)
+    # PITFALLS #10: 启动时显式打印 APP_MODE，防上线没切回 prod
+    logger.warning("=" * 60)
+    logger.warning("APP_MODE = %s", settings.app_mode.upper())
+    logger.warning("APP_VERSION = %s", settings.app_version)
+    logger.warning("LOG_LEVEL = %s", settings.log_level)
+    logger.warning("=" * 60)
+    return settings
+
+
+def reload_settings() -> Settings:
+    """测试用：清缓存重新加载。"""
+    get_settings.cache_clear()
+    return get_settings()

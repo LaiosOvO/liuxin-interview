@@ -1,0 +1,48 @@
+# 敏感凭证（永远不提交）
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+backend/.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# 项目数据
+backend/data/
+data/
+
+# memory search local index
+.memsearch/
+
+# claude code 本地 settings（凭证可能进 mcp 配置）
+.claude/settings.local.json

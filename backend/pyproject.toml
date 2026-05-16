@@ -1,0 +1,103 @@
+[project]
+name = "offboarding-flow"
+version = "0.1.0"
+description = "AI 驱动的离职流程执行系统 — LangGraph + FastAPI 状态机引擎"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "offboarding-flow team" }]
+
+dependencies = [
+  # Web 框架
+  "fastapi>=0.115,<0.140",
+  "uvicorn[standard]>=0.32,<0.40",
+  "python-multipart>=0.0.20",
+  # 配置 / 校验
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.6,<3",
+  # 数据库
+  "sqlalchemy[asyncio]>=2.0.36,<3",
+  "asyncpg>=0.30,<0.31",
+  "alembic>=1.14,<2",
+  # LangGraph 引擎 + checkpoint
+  "psycopg[binary,pool]>=3.2,<4",
+  "langgraph>=0.6,<2",
+  "langgraph-checkpoint-postgres>=2,<4",
+  # Redis（Phase 3 鉴权才真用）
+  "redis>=5.2,<7",
+  # 日志 / 工具
+  "structlog>=24.4,<26",
+  "tenacity>=9,<10",
+  "httpx>=0.28,<0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<0.30",
+  "pytest-cov>=6,<8",
+  "asgi-lifespan>=2.1,<3",
+  "polyfactory>=2.18,<3",
+  "ruff>=0.8,<0.20",
+  "mypy>=1.13,<2",
+  "types-redis>=4,<5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/offboarding_flow"]
+
+[tool.uv]
+dev-dependencies = [
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<0.30",
+  "pytest-cov>=6,<8",
+  "asgi-lifespan>=2.1,<3",
+  "polyfactory>=2.18,<3",
+  "ruff>=0.8,<0.20",
+  "mypy>=1.13,<2",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = [
+  "E501",     # E501 让 formatter 处理
+  "B008",     # B008 = FastAPI Depends 在 default 是惯例
+  "RUF001",   # 中文 string 含全角符号（ambiguous unicode）— 项目语言惯例
+  "RUF002",   # 中文 docstring 含全角符号 — 项目语言惯例
+  "RUF003",   # 中文 comment 含全角符号 — 项目语言惯例
+  "RUF022",   # __all__ 不强制字母序（按导入顺序更易读）
+  "UP037",    # 类型注解里保留 quote 防止前向引用问题
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "SIM117", "B017"]
+"migrations/**" = ["E402", "I001"]
+"src/offboarding_flow/main.py" = ["BLE001"]   # lifespan 必须捕获 broad exception 保启动容错
+"src/offboarding_flow/api/errors.py" = ["BLE001"]  # exception handler 兜底
+"src/offboarding_flow/state_store/models.py" = ["RUF012"]   # __table_args__ 是 SQLAlchemy 惯例
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+exclude = ["migrations/versions"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+  "e2e: 需要真后端容器，默认 skip（OFFBOARDING_E2E_BASE_URL 环境变量启用）",
+]
+addopts = "-m 'not e2e'"

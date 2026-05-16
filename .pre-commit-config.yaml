@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.29.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/.*\.py$
+      - id: ruff-format
+        files: ^backend/.*\.py$
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        files: ^backend/src/.*\.py$
+        additional_dependencies:
+          - pydantic>=2.10
+          - pydantic-settings>=2.6
+          - sqlalchemy[mypy]>=2.0
+        args: [--ignore-missing-imports]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        exclude: ^backend/migrations/script.py.mako$
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      # 注：no-commit-to-branch 已移除 — 本项目（演示 demo）允许直接 commit 到 main
+      # 上线后正式分支策略可按需启用
