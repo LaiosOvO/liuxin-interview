@@ -116,6 +116,17 @@ def create_app() -> FastAPI:
     except ImportError as e:
         logger.info("[create_app] auth router not yet implemented: %s", e)
 
+    # Phase 4 Slice 4B — Mattermost Outgoing Webhook（@offboarding-bot 命令入站）
+    try:
+        from offboarding_flow.api.mattermost_webhook import (
+            router as mattermost_webhook_router,
+        )
+
+        app.include_router(mattermost_webhook_router)
+        logger.info("[create_app] mounted mattermost_webhook_router")
+    except ImportError as e:
+        logger.info("[create_app] mattermost_webhook router not yet implemented: %s", e)
+
     return app
 
 
