@@ -11,8 +11,44 @@
 
 ## [Unreleased]
 
+### Phase 1 Complete (2026-05-16)
+
+**交付**：
+- ✓ uv 项目骨架 + 完整 v1 依赖（langgraph / fastapi 0.136.1 / sqlalchemy 2.0.49 async / psycopg 3 / asyncpg / structlog 25.x / pydantic 2.13.4）
+- ✓ pre-commit hooks（gitleaks v8.21.2 + ruff v0.8 + mypy v1.13 + check-yaml + no-commit-to-branch=main + check-merge-conflict + check-added-large-files）
+- ✓ Docker Compose 编排（postgres 16-alpine 5433 / redis 7-alpine 6380 / flow-api 8000，全部 healthcheck + restart=unless-stopped + 独立 offboarding-net）
+- ✓ 多阶段 Dockerfile（uv 0.10 builder + python 3.12-slim-bookworm runtime + wget 健康检查 + 缓存 mount）
+- ✓ entrypoint.sh（alembic upgrade head → checkpointer.setup → uvicorn）
+- ✓ 双 schema 隔离（app + langgraph + app_test + langgraph_test）+ deploy/init-db.sql + alembic env.py include_object 过滤 langgraph schema（PITFALLS #1）
+- ✓ 6 张业务表 schema（flow_instances / node_states / action_logs / users / notifications / notification_outbox）+ Repository 层（含 PG ON CONFLICT upsert 幂等）
+- ✓ LangGraph 引擎骨架（OffboardingState TypedDict + Annotated[list, operator.add] reducer 防 PITFALLS #4 + AsyncPostgresSaver psycopg 3 配置 PITFALLS #1 + 2 节点 apply/manager_review + dynamic interrupt + Command resume SUMMARY R3 + CLI --setup 入口）
+- ✓ FastAPI 应用（lifespan 容错 + 统一 envelope {success,data,error,meta} + 全局 exception handler + /api/health 组件检查 + APP_MODE 启动 warning 日志 PITFALLS #10 + structlog dev/prod）
+- ✓ 4 个业务 API 端点（POST /api/flows + GET /api/flows/{id} + GET /api/flows/{id}/nodes + POST /api/flows/{id}/nodes/{nid}/actions）
+- ✓ 业务表与 LangGraph checkpoint 双写规范最小版（业务事务 commit → graph.ainvoke）
+- ✓ 35 个测试全部通过（含 InMemorySaver 测 graph 流转 / asgi-lifespan + httpx 测 API / 重复推进 409 / 跨 flow_id 400 / 参数校验 422 / checkpoint 恢复 / Annotated reducer 静态校验）
+- ✓ E2E 骨架 + 手动冒烟脚本（scripts/dev_up.sh + scripts/smoke_test.sh）
+- ✓ frontend/tests/e2e/ Phase 5 占位骨架
+- ✓ CHANGELOG 全程更新
+
+**下一步**：
+- **Phase 2**（双写规范完整化 + 节点函数完整化 + 申请人最终确认节点）— 把 manager_review 后的 8 节点 + 5 并行节点 + applicant_final_confirm 全部落地
+- 或者：先在 192.168.2.44 上跑 `bash scripts/dev_up.sh && bash scripts/smoke_test.sh` 做一次部署冒烟
+
+**Phase 1 不做的（已推到对应 phase）**：
+- 鉴权 / 深链 JWT → Phase 3
+- 邮件 / Mattermost / GLM 摘要 → Phase 4
+- 前端 Next.js → Phase 5
+- nginx / 超时扫描 / 完整部署 → Phase 6
+
 ### Added
 
+- **2026-05-16** — **Phase 1 Plan 07**：E2E 测试骨架（backend/tests/e2e/test_full_flow.py 含 health + 起流程 + advance 的真容器冒烟 + docker restart 恢复占位 + 演示模式 11 场景占位清单 CLAUDE.md §2.1 + frontend/tests/e2e/ Phase 5 占位 + scripts/dev_up.sh + scripts/smoke_test.sh 手动冒烟 + pyproject.toml e2e marker 默认 skip）
+- **2026-05-16** — **Phase 1 Plan 06**：API 业务集成（services/flow_service.py 含 create_flow 双写规范最小版 PRD §5.3 Pattern 1：业务事务（INSERT flow_instances + INSERT action_log + upsert apply/manager_review nodes）→ session.commit() → graph.ainvoke 跑到 interrupt 挂起 + services/node_service.py 含 submit_action 三态决策推进（advance/return/reject 映射 + 409 状态校验 + 业务事务 commit → graph.ainvoke Command resume）+ api/deps.py FastAPI Depends 容器 6 个工厂 + api/flows.py 3 个端点（POST/GET/GET nodes）+ api/nodes.py 三态决策端点 + 10 个集成测试覆盖 envelope shape/起流程/查询/双层状态分离/advance/reject/重复推进 409/未知 flow 404/参数校验 422 全通过）
+- **2026-05-16** — **Phase 1 Plan 05**：FastAPI 应用骨架（config.py Pydantic Settings 单例 lru_cache + APP_MODE 启动 warning 日志 PITFALLS #10 + utils/logger.py structlog 配置 dev colorized / prod JSON + api/envelope.py {success,data,error,meta} helper + api/errors.py 全局 exception handler 含 RequestValidationError + Starlette HTTPException + Exception 兜底 + api/health.py 组件状态检查 db/graph/redis + main.py lifespan 串 init_db→build_graph→dispose 三件套 + 5 个集成测试 httpx+asgi-lifespan 全通过）
+- **2026-05-16** — **Phase 1 Plan 04**：LangGraph 引擎骨架（OffboardingState TypedDict + Annotated[list, operator.add] reducer 防 PITFALLS #4 静默丢数据 + AsyncPostgresSaver 工厂含 psycopg 3 autocommit/dict_row/prepare_threshold=0 防 PITFALLS #1 deadlock + setup_checkpointer_schema CLI 入口 `python -m offboarding_flow.flow_engine.checkpointer --setup` 给 entrypoint.sh 调 DEPLOY-05 + 2 个最小节点 apply 自动节点/manager_review dynamic interrupt + Command resume 模式 SUMMARY R3 + graph.py StateGraph START→apply→manager_review→END 拓扑 + 6 个测试含 InMemorySaver checkpoint 恢复 + Annotated reducer 静态校验）
+- **2026-05-16** — **Phase 1 Plan 03**：业务表 schema + Alembic + Repository 层（6 张 ORM 模型 flow_instances/node_states/action_logs/users/notifications/notification_outbox 全部 app schema + UUID PK gen_random_uuid + TIMESTAMPTZ 时间戳 + node_states.UNIQUE(flow_id, node_name) + notification_outbox.UNIQUE(flow_id, node_state_id, channel) 幂等基础 + alembic env.py include_object 过滤 langgraph schema 防 PITFALLS #1 误删 + version_table_schema=app + 异步 run_async_migrations + migration 0001 完整建表 + FlowRepository/NodeRepository/ActionRepository/UserRepository 含 PG ON CONFLICT upsert 接口 + 14 个单元测试覆盖模型/枚举/唯一约束/方法签名）
+- **2026-05-16** — **Phase 1 Plan 02**：Docker 编排（docker-compose.yml 三服务 offboarding-postgres 5433 / offboarding-redis 6380 / flow-api 8000，全部 healthcheck + restart=unless-stopped + 独立 offboarding-net + volume `/data/offboarding/{postgres,redis}-data` 持久化 + docker-compose.dev.yml override 挂源码 + --reload + DEBUG）+ deploy/init-db.sql 创建 app/langgraph/app_test/langgraph_test 4 schema + 设 flow 角色 search_path=app,public + 多阶段 Dockerfile（uv 0.10 builder + python:3.12-slim-bookworm runtime + wget 健康检查 + venv 拷贝 + ENTRYPOINT entrypoint.sh） + backend/.dockerignore + entrypoint.sh 串联 alembic upgrade head → checkpointer.setup → exec uvicorn（DEPLOY-05）
+- **2026-05-16** — **Phase 1 Plan 01**：初始化 backend/ uv 项目（pyproject.toml + uv.lock + .python-version + src layout）+ pre-commit hooks（gitleaks v8.21.2 + ruff v0.8.0 fix/format + mypy v1.13.0 + check-yaml + end-of-file-fixer + trailing-whitespace + no-commit-to-branch=main + check-merge-conflict + check-added-large-files）+ 扩展 .env.example 含 Phase 1 数据库/Redis/JWT/Mattermost/SMTP/MinIO/GLM 完整占位（不含真值）+ 更新 .gitignore（屏蔽 backend/.venv / htmlcov / coverage / .memsearch / .claude/settings.local.json）+ pytest 全局 conftest 含 loop_scope=session（防 PITFALLS #23）
 - **2026-05-16** — 创建项目级 **`CLAUDE.md`**（AI 协作约定）：明确「能并行就并行开发」+ 「E2E 测试用 browser-harness」+ 项目特定的双层状态分离 / 节点幂等 / 演示模式 / 中文化等约束
 - **2026-05-16** — Phase 1 `discuss-phase --auto` 完成：`.planning/phases/01-langgraph-schema/01-CONTEXT.md` 落盘，含 13 项实现决策（部署到 192.168.2.44 + 独立 postgres 容器端口 5433 + 双 schema 隔离 + dynamic interrupt + uv src layout 等）
 - **2026-05-16** — PRD v0.4 大幅扩展（面试评分点对齐 + Mattermost @bot 入口 + AI 增强）：
