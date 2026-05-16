@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     archive_service_timeout_seconds: float = 8.0
     archive_service_max_retries: int = 3
 
+    # Phase 6: 节点超时扫描（NOTI-05 + TIMEOUT-01 — PRD §17.1）
+    # 默认 24h SLA；演示快速触发用 DEMO_TIMEOUT_OVERRIDE_HOURS（如 0.05 ≈ 3 分钟）
+    # DEMO_TIMEOUT_OVERRIDE_HOURS 仅在 app_mode=demo 时生效，prod 永远走 NODE_TIMEOUT_HOURS
+    node_timeout_hours: float = 24.0
+    demo_timeout_override_hours: float | None = None
+    # 扫描频率：默认 60s 扫一次（与 outbox_drain 心跳一致量级）
+    timeout_scan_interval_seconds: float = 60.0
+
     # Phase 4 / Slice 4C: LLM (GLM via openai 兼容接口) — LLM-01..06
     glm_api_key: str = Field(default="changeme_in_real_env", validate_default=False)
     glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4/"
