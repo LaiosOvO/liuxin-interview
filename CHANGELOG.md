@@ -13,6 +13,11 @@
 
 ### Added (Phase 2)
 
+- 2026-05-16 — Phase 2 Plan 02：hr_initial + hr_final 两个串行节点 + 路由函数模块
+  - `flow_engine/nodes/hr_initial.py` / `hr_final.py`：interrupt + 三态决策模板
+  - `flow_engine/routes.py`：4 路由函数（after_manager_review / after_hr_initial / after_hr_final / after_applicant）+ 11 节点名常量 + PARALLEL_NODES list
+  - 23 测试：17 路由单测（覆盖每个分支）+ 6 节点 interrupt 行为单测
+
 - 2026-05-16 — Phase 2 Plan 01：双写规范完整化（失败补偿 + node_results 应用层冗余 + recover_from_db.py CLI）
   - `ActionStatus` 新增 `PENDING`；`ActionRepository.mark_failed` / `mark_success` / `list_failed` 方法
   - `FlowRepository.append_node_result` 写 `flow_instances.context.node_results` JSONB 数组（业务层冗余，不依赖 LangGraph state）
