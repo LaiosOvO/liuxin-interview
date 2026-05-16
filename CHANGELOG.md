@@ -11,6 +11,16 @@
 
 ## [Unreleased]
 
+### Added (Phase 2)
+
+- 2026-05-16 — Phase 2 Plan 01：双写规范完整化（失败补偿 + node_results 应用层冗余 + recover_from_db.py CLI）
+  - `ActionStatus` 新增 `PENDING`；`ActionRepository.mark_failed` / `mark_success` / `list_failed` 方法
+  - `FlowRepository.append_node_result` 写 `flow_instances.context.node_results` JSONB 数组（业务层冗余，不依赖 LangGraph state）
+  - `NodeService.submit_action` 升级：失败时 mark `action_log.failed` + 错误信息 + `raise HTTPException(500)` 含 recover 提示；成功时 mark success + graph 到 END 时 mark flow completed
+  - `state_store/session.py` 暴露 `new_session()` 上下文管理器供失败补偿新开 session
+  - `scripts/recover_from_db.py`：扫 failed action 重 invoke graph，支持 `--flow-id` / `--dry-run` / `--max-retries`
+  - 测试：5 个 state_store 签名校验 + 5 个 double_write 集成测试（含 graph 失败 → action_log.failed 校验）+ 5 个 recover_from_db 单测
+
 ### Phase 1 Complete (2026-05-16)
 
 **交付**：

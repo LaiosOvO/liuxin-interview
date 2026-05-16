@@ -65,6 +65,23 @@ class FlowRepository:
         )
         await self.session.execute(stmt)
 
+    async def append_node_result(self, flow_id: uuid.UUID, result: dict) -> None:
+        """向 flow_instances.context.node_results JSONB 数组追加一条节点结果。
+
+        策略 B（02-01-PLAN Task 1）：应用层读改写 + SELECT FOR UPDATE 防并发。
+        Phase 2 流程内单实例并发量低（每次决策一个 service 实例），FOR UPDATE 即可。
+        """
+        stmt = select(FlowInstance).where(FlowInstance.id == flow_id).with_for_update()
+        result_row = await self.session.execute(stmt)
+        flow = result_row.scalar_one()
+        # 深拷贝防 SQLAlchemy 不识别 mutation
+        context = dict(flow.context or {})
+        results = list(context.get("node_results", []))
+        results.append(result)
+        context["node_results"] = results
+        flow.context = context
+        await self.session.flush()
+
 
 # ---------------------------------------------------------------------------
 # NodeRepository
@@ -180,6 +197,43 @@ class ActionRepository:
 
     async def list_by_flow(self, flow_id: uuid.UUID) -> list[ActionLog]:
         stmt = select(ActionLog).where(ActionLog.flow_id == flow_id).order_by(ActionLog.created_at)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_failed(self, action_id: uuid.UUID, error_message: str) -> None:
+        """标记 action_log 为失败 + 写入错误信息（双写补偿入口）。"""
+        stmt = (
+            update(ActionLog)
+            .where(ActionLog.id == action_id)
+            .values(
+                status=ActionStatus.FAILED.value,
+                error_message=error_message,
+            )
+        )
+        await self.session.execute(stmt)
+
+    async def mark_success(self, action_id: uuid.UUID) -> None:
+        """标记 action_log 为成功（PENDING / FAILED 都可转 SUCCESS）。"""
+        stmt = (
+            update(ActionLog)
+            .where(ActionLog.id == action_id)
+            .values(
+                status=ActionStatus.SUCCESS.value,
+                error_message=None,
+            )
+        )
+        await self.session.execute(stmt)
+
+    async def list_failed(
+        self,
+        limit: int = 100,
+        flow_id: uuid.UUID | None = None,
+    ) -> list[ActionLog]:
+        """查询所有 failed 状态 action_log（recover 脚本入口）。"""
+        stmt = select(ActionLog).where(ActionLog.status == ActionStatus.FAILED.value)
+        if flow_id is not None:
+            stmt = stmt.where(ActionLog.flow_id == flow_id)
+        stmt = stmt.order_by(ActionLog.created_at).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

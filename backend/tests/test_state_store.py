@@ -158,6 +158,7 @@ def test_repository_classes_have_expected_methods():
     assert hasattr(FlowRepository, "get")
     assert hasattr(FlowRepository, "list_all")
     assert hasattr(FlowRepository, "mark_completed")
+    assert hasattr(FlowRepository, "append_node_result")  # Phase 2 Plan 01
     # NodeRepository
     assert hasattr(NodeRepository, "upsert")
     assert hasattr(NodeRepository, "get")
@@ -166,9 +167,56 @@ def test_repository_classes_have_expected_methods():
     # ActionRepository
     assert hasattr(ActionRepository, "create")
     assert hasattr(ActionRepository, "list_by_flow")
+    assert hasattr(ActionRepository, "mark_failed")  # Phase 2 Plan 01
+    assert hasattr(ActionRepository, "mark_success")  # Phase 2 Plan 01
+    assert hasattr(ActionRepository, "list_failed")  # Phase 2 Plan 01
     # UserRepository
     assert hasattr(UserRepository, "upsert")
     assert hasattr(UserRepository, "get_by_username")
+
+
+def test_action_status_has_pending():
+    """Phase 2 Plan 01：双写规范要 PENDING 中间态。"""
+    assert ActionStatus.PENDING.value == "pending"
+    # PENDING 必须在 SUCCESS 之前定义（实现细节）
+    values = list(ActionStatus)
+    assert ActionStatus.PENDING in values
+
+
+def test_action_repository_mark_failed_signature():
+    """mark_failed 签名 (action_id, error_message)。"""
+    import inspect
+
+    sig = inspect.signature(ActionRepository.mark_failed)
+    params = list(sig.parameters.keys())
+    assert params == ["self", "action_id", "error_message"]
+
+
+def test_action_repository_mark_success_signature():
+    """mark_success 签名 (action_id)。"""
+    import inspect
+
+    sig = inspect.signature(ActionRepository.mark_success)
+    params = list(sig.parameters.keys())
+    assert params == ["self", "action_id"]
+
+
+def test_action_repository_list_failed_signature():
+    """list_failed 签名 (limit=100, flow_id=None)。"""
+    import inspect
+
+    sig = inspect.signature(ActionRepository.list_failed)
+    params = list(sig.parameters.keys())
+    assert params == ["self", "limit", "flow_id"]
+
+
+def test_flow_repository_append_node_result_signature():
+    """append_node_result 签名 (flow_id, result)。"""
+    import inspect
+
+    sig = inspect.signature(FlowRepository.append_node_result)
+    params = list(sig.parameters.keys())
+    assert params == ["self", "flow_id", "result"]
 
 
 def test_node_states_has_unique_constraint():

@@ -74,6 +74,7 @@ class _FakeAction:
         self.action = kwargs["action"]
         self.result_text = kwargs.get("result_text")
         self.status = kwargs.get("status", ActionStatus.SUCCESS.value)
+        self.error_message = kwargs.get("error_message")
         self.payload = kwargs.get("payload")
         self.created_at = datetime.now(UTC)
 
@@ -98,6 +99,17 @@ class FakeFlowRepo:
         if flow:
             flow.status = status.value
             flow.completed_at = datetime.now(UTC)
+
+    async def append_node_result(self, flow_id, result):
+        """Phase 2 Plan 01：业务侧 node_results 冗余追加。"""
+        flow = self.store["flows"].get(flow_id)
+        if flow is None:
+            return
+        context = dict(flow.context or {})
+        results = list(context.get("node_results", []))
+        results.append(result)
+        context["node_results"] = results
+        flow.context = context
 
 
 class FakeNodeRepo:
@@ -168,6 +180,29 @@ class FakeActionRepo:
     async def list_by_flow(self, flow_id):
         return [a for a in self.store["actions"] if a.flow_id == flow_id]
 
+    async def mark_failed(self, action_id, error_message):
+        """Phase 2 Plan 01：双写失败补偿。"""
+        for a in self.store["actions"]:
+            if a.id == action_id:
+                a.status = ActionStatus.FAILED.value
+                a.error_message = error_message
+                return
+
+    async def mark_success(self, action_id):
+        """Phase 2 Plan 01：双写成功 finalize。"""
+        for a in self.store["actions"]:
+            if a.id == action_id:
+                a.status = ActionStatus.SUCCESS.value
+                a.error_message = None
+                return
+
+    async def list_failed(self, limit=100, flow_id=None):
+        """Phase 2 Plan 01：recover 入口。"""
+        items = [a for a in self.store["actions"] if a.status == ActionStatus.FAILED.value]
+        if flow_id is not None:
+            items = [a for a in items if a.flow_id == flow_id]
+        return items[:limit]
+
 
 class FakeSession:
     """模拟 AsyncSession.commit() — 内存 store 不需要真 commit。"""
@@ -237,6 +272,13 @@ async def client(fake_store, fake_graph):
             fake_graph,
         )
 
+    # Phase 2 Plan 01: session_factory 用 fake — 失败补偿走同一个 fake_session
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_session_factory():
+        yield fake_session
+
     def _override_node_service():
         return NodeService(
             fake_session,
@@ -244,6 +286,7 @@ async def client(fake_store, fake_graph):
             shared_node_repo,
             shared_action_repo,
             fake_graph,
+            session_factory=_fake_session_factory,
         )
 
     app.dependency_overrides[get_db_session] = _override_session

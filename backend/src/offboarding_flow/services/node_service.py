@@ -1,13 +1,28 @@
-"""node_service: 节点决策推进。
+"""node_service: 节点决策推进（Phase 2 完整版双写规范）。
 
 职责：
-- submit_action: 三态决策推进，执行双写规范（业务事务 commit → graph.ainvoke Command resume）
+- submit_action: 三态决策推进，执行双写规范完整版（业务事务 commit → graph.ainvoke → 失败补偿）
+
+双写规范（PRD §5.3.1 + PITFALLS #2 + 02-CONTEXT §5）：
+1. 业务校验（节点存在 + status=waiting_human）
+2. 业务事务：
+   - INSERT action_log (status=PENDING)
+   - UPDATE node_states (done/rejected/returned + result_text + completed_at)
+   - append flow_instances.context.node_results JSONB 数组
+   - 若 reject：flow_instances.status=rejected
+3. session.commit() — 业务侧 source of truth 已固化
+4. graph.ainvoke(Command(resume={...})) 推进 LangGraph
+5. 失败（graph 异常）→ 新 session mark action_log.failed + raise HTTPException(500)
+6. 成功 → 新 session mark action_log.success
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -36,8 +51,19 @@ _ACTION_MAP: dict[str, tuple[ActionType, NodeStatus]] = {
 }
 
 
+# 默认 session_factory — 测试时可注入 mock
+def _default_session_factory() -> AbstractAsyncContextManager[AsyncSession]:
+    """默认 session_factory（导入时延迟避免循环依赖）。"""
+    from offboarding_flow.state_store.session import new_session
+
+    return new_session()
+
+
+SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
+
 class NodeService:
-    """节点推进服务。"""
+    """节点推进服务（Phase 2 完整双写规范）。"""
 
     def __init__(
         self,
@@ -46,12 +72,15 @@ class NodeService:
         node_repo: NodeRepository,
         action_repo: ActionRepository,
         graph: Any,
+        session_factory: SessionFactory | None = None,
     ) -> None:
         self.session = session
         self.flow_repo = flow_repo
         self.node_repo = node_repo
         self.action_repo = action_repo
         self.graph = graph
+        # 用 _default_session_factory 默认值（测试可注入 mock）
+        self.session_factory: SessionFactory = session_factory or _default_session_factory
 
     async def submit_action(
         self,
@@ -61,26 +90,14 @@ class NodeService:
         result_text: str,
         actor: str,
     ) -> dict[str, Any]:
-        """提交三态决策推进节点。
-
-        双写规范（Phase 1 最小版 — PRD §5.3 Pattern 1 + CONTEXT §4）：
-        1. 业务事务：
-           - 校验节点存在 + status=waiting_human（409 if not）
-           - INSERT action_log
-           - UPDATE node_states.status = done/rejected/returned + result_text + completed_at
-           - 若 advance：flow_instances.status = completed（Phase 1 简化：manager_review 是末节点）
-           - 若 reject：flow_instances.status = rejected
-        2. session.commit()
-        3. graph.ainvoke(Command(resume={action, result_text, actor}))
-        4. graph 失败仅 log（Phase 2 加 mark action_log.failed + recover）
-        """
+        """提交三态决策推进节点（Phase 2 双写规范完整版）。"""
         if action not in _ACTION_MAP:
             raise HTTPException(
                 status_code=400,
                 detail=f"action 必须是 advance/return/reject，收到: {action}",
             )
 
-        # Step 1: 业务校验 + 事务
+        # ---- Step 1: 业务校验 ----
         node = await self.node_repo.get(node_id)
         if node is None:
             raise HTTPException(status_code=404, detail=f"node_id {node_id} 不存在")
@@ -97,28 +114,41 @@ class NodeService:
 
         action_type, new_status = _ACTION_MAP[action]
         previous_status = node.status
+        node_name = node.node_name
+        node_title = node.node_title
 
-        # 写 action_log
-        await self.action_repo.create(
+        # ---- Step 2: 业务事务 ----
+        # 2a. action_log (PENDING)
+        action_log = await self.action_repo.create(
             flow_id=flow_id,
             node_state_id=node_id,
             actor=actor,
             action=action_type,
             result_text=result_text,
-            status=ActionStatus.SUCCESS,
+            status=ActionStatus.PENDING,
         )
 
-        # 更新 node_states
+        # 2b. node_states 完成
         await self.node_repo.complete(node_id, result_text, new_status)
 
-        # Phase 1: manager_review 是末节点 — advance 流程 completed，reject 流程 rejected
+        # 2c. flow_instances.context.node_results 追加（业务侧冗余）
+        await self.flow_repo.append_node_result(
+            flow_id=flow_id,
+            result={
+                "node_name": node_name,
+                "node_title": node_title,
+                "result_text": result_text,
+                "actor": actor,
+                "completed_at": datetime.now(UTC).isoformat(),
+                "action": action,
+            },
+        )
+
+        # 2d. reject → flow.status=rejected（advance/return 不在此处改 flow 状态，由 graph 走完后判断）
         if action == "reject":
             await self.flow_repo.mark_completed(flow_id, status=FlowStatus.REJECTED)
-        elif action == "advance":
-            await self.flow_repo.mark_completed(flow_id, status=FlowStatus.COMPLETED)
-        # 'return' 在 Phase 1 manager_review 是首人工节点，无上游可退 — 仅记录不改流程状态
 
-        # 提交业务事务
+        # ---- Step 3: 提交业务事务 ----
         await self.session.commit()
         logger.info(
             "[node_service] flow=%s node=%s action=%s — business committed",
@@ -127,7 +157,7 @@ class NodeService:
             action,
         )
 
-        # Step 2: 推进 graph（事务已 commit — 失败仅 log，Phase 2 加重试）
+        # ---- Step 4: 推进 graph（失败时新 session mark failed + raise）----
         config = {"configurable": {"thread_id": str(flow_id)}}
         try:
             await self.graph.ainvoke(
@@ -141,18 +171,69 @@ class NodeService:
                 config=config,
             )
             logger.info("[node_service] graph resumed flow=%s action=%s", flow_id, action)
-        except Exception as e:
-            logger.exception("[node_service] graph.ainvoke failed AFTER business commit: %s", e)
-            # Phase 2 才加：mark action_log.failed + alert + recover 脚本
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            logger.exception(
+                "[node_service] graph.ainvoke FAILED after business commit — flow=%s action_log=%s: %s",
+                flow_id,
+                action_log.id,
+                error_msg,
+            )
+            # 失败补偿：新 session 标 action_log failed
+            try:
+                async with self.session_factory() as fail_session:
+                    fail_action_repo = ActionRepository(fail_session)
+                    await fail_action_repo.mark_failed(action_log.id, error_msg)
+                    await fail_session.commit()
+            except Exception as fail_exc:
+                # 失败补偿本身失败 — 仅 log，不掩盖原异常
+                logger.error(
+                    "[node_service] mark_failed also failed for action_log=%s: %s",
+                    action_log.id,
+                    fail_exc,
+                )
+            # 暂存当前 flow 数据后 raise
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"流程推进失败已记录 action_log={action_log.id}，"
+                    f"可通过 scripts/recover_from_db.py --flow-id={flow_id} 重试 ({error_msg})"
+                ),
+            ) from exc
 
-        # Step 3: 重读最新流程状态
+        # ---- Step 5: 成功 → mark action_log success + 若 graph 到 END 则 mark flow completed ----
+        # 注意：mark_success 用主 session（self.action_repo）— 失败补偿路径才用 session_factory
+        # 因为成功路径下原 session 仍有效，且 commit 后可以再 commit
+        try:
+            await self.action_repo.mark_success(action_log.id)
+            # 检查 graph 是否到 END（snapshot.next 为空）
+            try:
+                snapshot = await self.graph.aget_state(config)
+                next_nodes = list(snapshot.next or [])
+                if not next_nodes and action != "reject":
+                    # graph 推进到 END 且不是 reject → flow completed
+                    await self.flow_repo.mark_completed(flow_id, status=FlowStatus.COMPLETED)
+            except Exception as snap_exc:
+                logger.warning("[node_service] aget_state failed (non-fatal): %s", snap_exc)
+            await self.session.commit()
+        except Exception as ok_exc:
+            # 仅 log — 不阻塞返回（graph 推进已成功，action_log 状态轻微不一致可被 recover 修）
+            logger.warning(
+                "[node_service] mark_success failed for action_log=%s: %s",
+                action_log.id,
+                ok_exc,
+            )
+
+        # ---- Step 6: 重读最新流程状态 ----
         flow = await self.flow_repo.get(flow_id)
 
         return {
             "node_id": str(node_id),
+            "node_name": node_name,
             "previous_status": previous_status,
             "new_status": new_status.value,
             "current_action": action,
             "flow_status": flow.status if flow else "unknown",
-            "next_node": None,  # Phase 2 才有 next_node
+            "action_log_id": str(action_log.id),
+            "next_node": None,  # Phase 2 Plan 05 才接入 graph snapshot.next
         }

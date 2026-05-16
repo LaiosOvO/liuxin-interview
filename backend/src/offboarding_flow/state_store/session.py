@@ -10,7 +10,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -56,6 +57,19 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI Depends 入口：每请求一个 session。"""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        yield session
+
+
+@asynccontextmanager
+async def new_session() -> AsyncIterator[AsyncSession]:
+    """打开一个独立的 AsyncSession（用于双写规范 failure path 补偿写入）。
+
+    Phase 2 Plan 01：node_service.submit_action 在原 session commit 之后，
+    若 graph.ainvoke 抛异常，需用新 session 写 action_log.failed —
+    原 session 已被 ASGI 请求生命周期托管，不能复用。
+    """
     sm = get_sessionmaker()
     async with sm() as session:
         yield session

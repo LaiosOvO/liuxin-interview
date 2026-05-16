@@ -41,8 +41,15 @@ class ActionType(StrEnum):
 
 
 class ActionStatus(StrEnum):
-    """action_logs.status 枚举（双写规范的失败补偿 — Phase 2 完善）。"""
+    """action_logs.status 枚举（双写规范的失败补偿 — Phase 2 完整版）。
 
+    PENDING: 业务事务已 commit 但 graph.ainvoke 尚未跑（双写中间态）。
+    SUCCESS: 业务 + graph 均成功。
+    FAILED: graph.ainvoke 抛异常，业务侧已 commit，待 recover_from_db 重试。
+    RETRYING: recover 脚本正在重试。
+    """
+
+    PENDING = "pending"
     SUCCESS = "success"
     FAILED = "failed"
     RETRYING = "retrying"
