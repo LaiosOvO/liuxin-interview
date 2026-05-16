@@ -186,12 +186,14 @@ def test_recover_main_cli_help_runnable(capsys):
     """argparse 应输出 --help 信息（验证 CLI 可执行 + 不引入新依赖）。"""
     import subprocess
     import sys
+    from pathlib import Path
 
+    backend_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [sys.executable, "-m", "scripts.recover_from_db", "--help"],
         capture_output=True,
         text=True,
-        cwd="/Users/admin/ai/resume/interview/liuxin/hr/.claude/worktrees/phase-2-offboarding/backend",
+        cwd=str(backend_root),
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "--flow-id" in result.stdout
