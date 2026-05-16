@@ -344,8 +344,12 @@ async def test_list_flow_nodes_returns_apply_and_manager_review(client):
     assert names == ["apply", "manager_review"]
 
 
-async def test_advance_action_completes_manager_review_and_flow(client):
-    """POST /actions advance → manager_review done + flow completed。"""
+async def test_advance_action_completes_manager_review_node(client):
+    """POST /actions advance → manager_review done + 流程继续推进到 hr_initial（Phase 2 拓扑）。
+
+    Phase 1 简化拓扑：manager_review 是末节点，advance 后 flow=completed。
+    Phase 2 完整拓扑：manager_review advance 后流程推进到 hr_initial，flow 仍 in_progress。
+    """
     resp = await client.post("/api/flows", json={"employee_id": "zhang.san"})
     data = resp.json()["data"]
     flow_id = data["flow_id"]
@@ -360,9 +364,10 @@ async def test_advance_action_completes_manager_review_and_flow(client):
     assert body["success"] is True
     assert body["data"]["new_status"] == "done"
     assert body["data"]["current_action"] == "advance"
-    assert body["data"]["flow_status"] == "completed"
+    # Phase 2 manager_review 不再是末节点 — flow 仍 in_progress
+    assert body["data"]["flow_status"] == "in_progress"
 
-    # 二次校验 GET
+    # 二次校验 GET — manager_review done + result_text 写入
     resp = await client.get(f"/api/flows/{flow_id}/nodes")
     nodes = resp.json()["data"]
     mr = next(n for n in nodes if n["name"] == "manager_review")

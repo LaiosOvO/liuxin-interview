@@ -13,6 +13,14 @@
 
 ### Added (Phase 2)
 
+- 2026-05-16 — Phase 2 Plan 05：graph.py 总装 10 节点完整拓扑
+  - apply → manager_review → hr_initial → 5 并行 (fan-out via Send) → hr_final → applicant_final_confirm → archive → END
+  - `_route_after_hr_initial_to_parallel` 用 LangGraph 1.x `Send(node, state)` 实现 dynamic fan-out
+  - 5 并行节点自动 fan-in（`add_edge(name, hr_final)` 多源默认 wait-all）
+  - 退回 / 拒绝路径路由完整生效
+  - `test_graph_topology.py`：9 测试（10 节点 / 5 并行 / archive→END / start→apply / fan-in / 编译 / 节点数 / manager_review interrupt）
+  - 调整 `test_api_flows.test_advance_action_completes_manager_review_node`：Phase 2 拓扑下 manager_review 不再是末节点
+
 - 2026-05-16 — Phase 2 Plan 04：applicant_final_confirm（DF-02 ★★★★★）+ archive + timeline_renderer
   - `flow_engine/nodes/applicant_final_confirm.py`：interrupt payload 含 timeline；两态决策（advance / return），reject 防御性回退到 advance；默认 actor=申请人；默认 result_text 视 action 而定
   - `flow_engine/nodes/archive.py`：自动节点（无 interrupt），actor=system:archivist
