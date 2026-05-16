@@ -215,3 +215,67 @@ async def test_context_manager_with_external_client_does_not_close() -> None:
     assert sender._client is client
     assert captured.get("called") is True
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_full_attachment_flow_against_mock_mm_server() -> None:
+    """端到端契约：sender 推一条 Interactive Message 卡片到 mock MM server。
+
+    模拟真 Mattermost server 的 /api/v4/posts 路径 + 响应格式 — 验证 sender
+    与 PRD §7.2 JSON 样板的字段对齐（attachments / fields / actions / color）。
+    """
+    received: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/api/v4/posts"
+        received.append(json.loads(request.content.decode()))
+        return httpx.Response(
+            201,
+            json={
+                "id": "p_xxx",
+                "create_at": 1700000000,
+                "user_id": "bot_user_id",
+                "channel_id": received[-1]["channel_id"],
+                "message": received[-1]["message"],
+            },
+        )
+
+    client = _client_with_handler(handler)
+    sender = MattermostSender(_settings("real-pat"), client=client)
+    try:
+        att = build_action_attachment(
+            title="李四 - 设备归还",
+            title_link="http://192.168.2.44:3000/flow/handle?flow_id=x&node_id=y&token=z",
+            text="请在 24 小时内处理 3 台设备的归还确认",
+            color="#FFA500",
+            fields=[
+                {"title": "员工", "value": "李四（工号 12345）", "short": True},
+                {"title": "节点", "value": "设备归还", "short": True},
+            ],
+            actions=[
+                {"name": "继续", "integration": {"url": "/api/action/advance"}},
+                {"name": "退回", "integration": {"url": "/api/action/return"}},
+                {"name": "拒绝", "integration": {"url": "/api/action/reject"}},
+            ],
+        )
+        result = await sender.post(
+            MattermostMessage(
+                channel_id="C123",
+                message="您有一个待处理节点",
+                attachments=[att],
+            )
+        )
+    finally:
+        await client.aclose()
+
+    assert result["id"] == "p_xxx"
+    body = received[0]
+    assert body["channel_id"] == "C123"
+    assert body["message"] == "您有一个待处理节点"
+    assert body["props"]["attachments"][0]["title"] == "李四 - 设备归还"
+    # 验证 actions 三态决策按钮全部透传
+    assert len(body["props"]["attachments"][0]["actions"]) == 3
+    assert body["props"]["attachments"][0]["actions"][0]["name"] == "继续"
+    assert body["props"]["attachments"][0]["actions"][1]["name"] == "退回"
+    assert body["props"]["attachments"][0]["actions"][2]["name"] == "拒绝"
