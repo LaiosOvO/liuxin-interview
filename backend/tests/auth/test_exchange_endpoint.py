@@ -13,91 +13,15 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import AsyncGenerator
 
 import httpx
 import pytest
-import pytest_asyncio
-from asgi_lifespan import LifespanManager
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from offboarding_flow.auth import JWTPayload, encode
-from offboarding_flow.state_store.enums import NodeStatus, Role
-from offboarding_flow.state_store.models import FlowInstance, NodeState, User
+from offboarding_flow.state_store.enums import NodeStatus
 
 pytestmark = pytest.mark.asyncio
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """function scope DB session — 失败跳过；用 yield-then-rollback 隔离。"""
-    from offboarding_flow.state_store.session import get_sessionmaker
-
-    sm = get_sessionmaker()
-    async with sm() as session:
-        # ping
-        try:
-            await session.execute(text("SELECT 1"))
-        except Exception as e:
-            pytest.skip(
-                f"PostgreSQL 不可达: {e}；启 docker compose -f docker-compose.dev.yml up offboarding-postgres -d 后重跑"
-            )
-        yield session
-        await session.rollback()
-
-
-@pytest_asyncio.fixture
-async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    """FastAPI test client（ASGITransport，避免真起 uvicorn）。"""
-    from offboarding_flow.main import create_app
-
-    app = create_app()
-    async with LifespanManager(app):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            yield client
-
-
-@pytest_asyncio.fixture
-async def sample_node_and_user(db_session: AsyncSession):
-    """造一个 manager 角色 user + 对应 waiting_human node。"""
-    flow_id = uuid.uuid4()
-    node_id = uuid.uuid4()
-    user_id = uuid.uuid4()
-
-    user = User(
-        id=user_id,
-        username=f"li.si_{uuid.uuid4().hex[:8]}",
-        email="li.si@demo.local",
-        display_name="李四",
-        role=Role.MANAGER.value,
-    )
-    flow = FlowInstance(id=flow_id, employee_id="zhang.san", status="in_progress")
-    node = NodeState(
-        id=node_id,
-        flow_id=flow_id,
-        node_name="manager_review",
-        node_title="上级审批",
-        status=NodeStatus.WAITING_HUMAN.value,
-        assignee=user.username,
-    )
-    db_session.add_all([user, flow, node])
-    await db_session.commit()
-    try:
-        yield {"flow": flow, "node": node, "user": user}
-    finally:
-        await db_session.delete(node)
-        await db_session.delete(flow)
-        await db_session.delete(user)
-        await db_session.commit()
 
 
 def _make_token(

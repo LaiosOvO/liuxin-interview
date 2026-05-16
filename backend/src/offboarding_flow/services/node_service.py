@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from offboarding_flow.auth import jti_service
 from offboarding_flow.state_store.enums import (
     ActionStatus,
     ActionType,
@@ -25,6 +26,9 @@ from offboarding_flow.state_store.repositories import (
     FlowRepository,
     NodeRepository,
 )
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +50,14 @@ class NodeService:
         node_repo: NodeRepository,
         action_repo: ActionRepository,
         graph: Any,
+        redis: "Redis | None" = None,
     ) -> None:
         self.session = session
         self.flow_repo = flow_repo
         self.node_repo = node_repo
         self.action_repo = action_repo
         self.graph = graph
+        self.redis = redis
 
     async def submit_action(
         self,
@@ -126,6 +132,24 @@ class NodeService:
             node_id,
             action,
         )
+
+        # Phase 3: 节点状态变更后失效该 node 所有未消费 token（PRD §6.2.3）
+        if self.redis is not None:
+            try:
+                invalidated = await jti_service.invalidate_node_tokens(self.redis, node_id)
+                if invalidated > 0:
+                    logger.info(
+                        "[node_service] invalidated %d tokens for node=%s",
+                        invalidated,
+                        node_id,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[node_service] invalidate tokens failed (non-fatal) flow=%s node=%s err=%s",
+                    flow_id,
+                    node_id,
+                    e,
+                )
 
         # Step 2: 推进 graph（事务已 commit — 失败仅 log，Phase 2 加重试）
         config = {"configurable": {"thread_id": str(flow_id)}}
