@@ -7,8 +7,9 @@
 - **优雅停止**：FastAPI lifespan shutdown 时 cancel + await join
 
 子模块：
-- `outbox_drain`: pg_notify('outbox_new') → 拉 pending → 调 email_sender / mattermost_sender → mark success/failed
+- `outbox_drain`: in-process asyncio.Event → 拉 pending → 调 email_sender / mattermost_sender → mark success/failed
 - `evidence_missing_detector`: 纯函数 helper，AI 报告与 simulate-evidence-missing 命令使用
+- `timeout_scan` (Phase 6): NOTI-05 + TIMEOUT-01 — 每 60s 扫超时节点 + 入队提醒邮件
 """
 
 from __future__ import annotations
@@ -19,11 +20,25 @@ from .evidence_missing_detector import (
     is_text_evidence_missing,
 )
 from .outbox_drain import OutboxDrainWorker, drain_once
+from .timeout_scan import (
+    TIMEOUT_REMIND_ACTION,
+    TimeoutScanWorker,
+    compute_sla_hours,
+    compute_threshold,
+    find_overdue_nodes,
+    scan_once,
+)
 
 __all__ = [
     "EVIDENCE_MIN_LENGTH",
+    "TIMEOUT_REMIND_ACTION",
     "OutboxDrainWorker",
+    "TimeoutScanWorker",
+    "compute_sla_hours",
+    "compute_threshold",
     "detect_evidence_missing",
     "drain_once",
+    "find_overdue_nodes",
     "is_text_evidence_missing",
+    "scan_once",
 ]

@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] graph build failed (will continue): %s", e)
 
-    # Phase 4 Slice 4D — 起 OutboxDrainWorker（事件驱动 LISTEN/NOTIFY + 60s 心跳）
+    # Phase 4 Slice 4D — 起 OutboxDrainWorker（事件驱动 in-process asyncio.Event + 60s 心跳）
     outbox_worker = None
     outbox_task = None
     try:
@@ -72,7 +72,38 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] outbox worker start failed (will continue): %s", e)
 
+    # Phase 6 — 起 TimeoutScanWorker（NOTI-05 + TIMEOUT-01，每 60s 扫超时节点）
+    timeout_worker = None
+    timeout_task = None
+    try:
+        import asyncio
+
+        from offboarding_flow.workers import TimeoutScanWorker
+
+        timeout_worker = TimeoutScanWorker(settings)
+        timeout_task = asyncio.create_task(timeout_worker.run())
+        app.state.timeout_worker = timeout_worker
+        app.state.timeout_task = timeout_task
+        logger.info(
+            "[lifespan] timeout scan worker started (SLA=%.2fh interval=%.0fs)",
+            settings.node_timeout_hours
+            if settings.demo_timeout_override_hours is None
+            else settings.demo_timeout_override_hours,
+            settings.timeout_scan_interval_seconds,
+        )
+    except Exception as e:
+        logger.warning("[lifespan] timeout scan worker start failed (will continue): %s", e)
+
     yield
+
+    # Phase 6 — 优雅停止 timeout worker（先于 outbox，让最后一批 outbox 仍能 drain）
+    if timeout_worker is not None and timeout_task is not None:
+        try:
+            await timeout_worker.stop()
+            await asyncio.wait_for(timeout_task, timeout=5.0)
+            logger.info("[lifespan] timeout scan worker stopped")
+        except Exception as e:
+            logger.warning("[lifespan] timeout worker stop error: %s", e)
 
     # Phase 4 Slice 4D — 优雅停止 outbox worker
     if outbox_worker is not None and outbox_task is not None:

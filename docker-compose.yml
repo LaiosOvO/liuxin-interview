@@ -53,9 +53,13 @@ services:
       POSTGRES_DSN: postgresql+asyncpg://flow:${POSTGRES_PASSWORD}@offboarding-postgres:5432/offboarding
       LANGGRAPH_PG_CONNINFO: postgres://flow:${POSTGRES_PASSWORD}@offboarding-postgres:5432/offboarding
       REDIS_URL: redis://offboarding-redis:6379/0
+      # Phase 6（SUMMARY R1）: 深链基址走 nginx :80（无 :3000，nginx 反代 /api → flow-api）
       DEEPLINK_BASE_URL: ${DEEPLINK_BASE_URL:-http://192.168.2.44}
       # Phase 4.5（PRD §18 加分项）: AutoNode 外部归档服务
       ARCHIVE_SERVICE_URL: ${ARCHIVE_SERVICE_URL:-http://mock-archive-service:5000/archive}
+      # Phase 6（NOTI-05 / TIMEOUT-01）: 节点 SLA 与演示快速触发覆盖
+      NODE_TIMEOUT_HOURS: ${NODE_TIMEOUT_HOURS:-24}
+      DEMO_TIMEOUT_OVERRIDE_HOURS: ${DEMO_TIMEOUT_OVERRIDE_HOURS:-}
     depends_on:
       offboarding-postgres:
         condition: service_healthy
@@ -92,6 +96,55 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    networks:
+      - offboarding-net
+
+  # Phase 6（DEPLOY-01/02/03）: nginx 反代 + 静态前端
+  # 反代 /api/ → flow-api:8000；根路径 serve 前端静态产物；监听 80 端口
+  # Phase 5 frontend build 完成后挂载 frontend/out → /usr/share/nginx/html
+  nginx:
+    build:
+      context: ./deploy/nginx
+    image: offboarding-nginx:latest
+    container_name: offboarding-nginx
+    ports:
+      - "80:80"
+    volumes:
+      # Phase 5 前端构建产物（pnpm build → frontend/out/）。
+      # 若 frontend/out 不存在容器会启动但只 serve 占位 index.html；
+      # Phase 5 完成后无需重建镜像，重启 nginx 即可热加载产物。
+      - ./frontend/out:/usr/share/nginx/html:ro
+    depends_on:
+      flow-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - offboarding-net
+
+  # Phase 6 可选辅助：frontend-build 一次性容器
+  # 用于 CI / 部署机不装 Node 22 + pnpm 11 时，直接 docker compose run frontend-build
+  # 默认不随 up -d 启动（profiles: build 隔离）
+  frontend-build:
+    image: node:22-alpine
+    container_name: offboarding-frontend-build
+    profiles:
+      - build
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: >
+      sh -c "
+        corepack enable &&
+        corepack prepare pnpm@11.1.1 --activate &&
+        pnpm install --frozen-lockfile &&
+        pnpm build
+      "
     networks:
       - offboarding-net
 
