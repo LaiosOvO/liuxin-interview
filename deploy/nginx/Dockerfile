@@ -10,7 +10,8 @@
 ##   2. 演示/开发模式：用 docker-compose volume mount 覆盖 /usr/share/nginx/html
 ##      （Phase 5 frontend build 完成后挂载 frontend/out 即可，无需重建镜像）
 
-FROM nginx:1.27-alpine
+## 复用服务器本地已有的 nginx:latest（debian based，配置 100% 兼容）— 避免再 pull
+FROM nginx:latest
 
 ## 1. 替换默认配置 — http 块 + server 块（PITFALLS #13/#20 已落地）
 COPY nginx.conf /etc/nginx/nginx.conf

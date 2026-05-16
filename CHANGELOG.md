@@ -11,6 +11,69 @@
 
 ## [Unreleased]
 
+### Phase 7+ (2026-05-17) — 协作文档 + Provider 抽象 + 按员工分文件夹 + 生产级 DAG + 完整 E2E
+
+#### Added — DocProvider / IMProvider 抽象层
+- `backend/src/offboarding_flow/providers/base.py` — `DocProvider` / `IMProvider` Protocol + `DocInfo` / `UserInfo` dataclass + `ProviderError`
+- `backend/src/offboarding_flow/providers/factory.py` — `get_doc_provider()` / `get_im_provider()` 单例（`@lru_cache`）
+- `backend/src/offboarding_flow/providers/outline_provider.py` — Outline 实现（真接入）
+- `backend/src/offboarding_flow/providers/mattermost_provider.py` — Mattermost 实现（bot_token 直调 REST）
+- `backend/src/offboarding_flow/providers/lark_provider.py` — 飞书 docs + IM（含 tenant_access_token 缓存 + chunk text + markdown card）
+- `backend/src/offboarding_flow/providers/wecom_provider.py` / `dingtalk_provider.py` — stub 抛 ProviderError
+- `backend/src/offboarding_flow/flow_engine/provider_mapping.py` — per-node / per-role override 槽位 + `resolve_doc_provider` / `resolve_im_provider`
+- `.env` 切换 provider：`DOC_PROVIDER=outline|lark|wecom|dingtalk` / `IM_PROVIDER=mattermost|lark|...`
+
+#### Added — AI 节点交接 + 总报告
+- `backend/src/offboarding_flow/services/handover_service.py`：
+  - `HandoverService.generate_node_handover` — 每节点 advance 后 fire-and-forget LLM 生成 markdown → DocProvider.create_document
+  - `HandoverService.generate_final_summary` — 流程 completed 时聚合所有节点 handover docs，LLM 失败走 `_render_rule_based_final_summary` 兜底
+- `backend/src/offboarding_flow/services/node_service.py`：
+  - `_trigger_handover_async` — 写回 `flow.context.handover_docs[]` + DM @ 协作人
+  - `_trigger_final_summary_async` — flow.status=completed 时触发；poll 等所有 handover docs 写齐（最多 30 轮 * 3s）才生成，保证总报告链接完整
+  - `_find_interrupt_id_for_node` — 从 snap.tasks 找对应节点 interrupt id（LangGraph 1.x 多 interrupt 路由）
+- `backend/src/offboarding_flow/llm/prompts.py` — `HANDOVER_NODE_PROMPT` / `HANDOVER_FINAL_SUMMARY_PROMPT` / `ANALYZE_TASK_PROMPT` / `ANALYZE_BLOCKER_PROMPT` / `ANALYZE_DECISION_PROMPT` / `PERSONAL_BRIEF_PROMPT` / `EXECUTIVE_BRIEF_PROMPT` / `INTENT_ROUTER_PROMPT`
+
+#### Changed — 按员工分文件夹（用户要求："一个员工就新建的文件夹的分类"）
+- `handover_service.HANDOVER_COLLECTION_NAME` 删除全局常量，改为 `_employee_collection_name(employee_id)` 返回 `"离职 · {employee_id}"`
+- 节点交接 + 总报告均按员工 ID 解析 collection，相当于每员工独立文件夹
+- `outline/client.py` `ensure_collection` 内部 `list_collections(limit=100)` 防员工 collection 超过 25 时漏查
+
+#### Added — Mattermost Bot
+- `backend/src/offboarding_flow/workers/mattermost_listener.py` — WebSocket 长连让 bot 在线，DM + channel @mention 双触发
+- `backend/src/offboarding_flow/services/bot_intent_router.py` — 白名单 parse 失败 → LLM 意图分类 → 路由对应命令 / ai_qa 兜底回答
+- `bot_command_parser.py` 新增 `meeting-ingest` / `meeting-list` / `users-sync` 命令 + `SELF_APPLY_SENTINEL` 自我申请通道
+- `bot_service.py` 新增 `handle_meeting_ingest` / `handle_meeting_list` / `handle_users_sync` 三 handler + `BotInvocationContext.mm_helpers`
+
+#### Added — 会议纪要 AI 分析
+- `backend/src/offboarding_flow/services/meeting_service.py`：
+  - `extract()` → JSON 解析任务 / 卡点 / 决策
+  - `analyze()` → asyncio.gather 并发对每条独立深度分析 + executive_brief
+  - `distribute()` → DocProvider 写文档 + IMProvider DM 个性化 brief + `mm_ensure_in_channel` @mention 触发
+
+#### Fixed — 邮件渲染管线
+- `outbox_drain._envelope_from_payload` 修 key 对齐：`base_subject` / `body_html` / `body_text` / `assignee_role` / `assignee_username`（旧 bug 显示 `[employee·unknown]（无主题）`）
+- `notification_service.enqueue_node_email` 渲染 HTML+text 写 payload + 加 `outline_url` 传模板
+- `notifications/templates/node_waiting_email.html` 加「📝 协作交接文档（可选）」段，引导用户去 Outline 创建文档后回粘 URL
+
+#### Fixed — LangGraph fan-in 冲突
+- `flow_engine/state.py` 加 `_take_latest` reducer for `current_action` + `_merge_context` for `context` — 解决 5 并行节点 fan-in 时 `InvalidUpdateError: Can receive only one value per step`
+
+#### Added — 生产级 DAG 流程图
+- `frontend/components/flow/flow-diagram.tsx` — React Flow + dagre 自动布局
+  - 11 节点固定 DAG + 14 条边（含 5 并行 fan-out/in）
+  - 自定义节点：颜色按状态（done蓝 / waiting_human黄+pulse / rejected红 / returned橙 / pending灰虚） + 可点击跳处理页
+  - dagre LR 自动布局 + MiniMap + Controls + 图例
+- `frontend/app/my/flows/page.tsx` 加 DAG section + handover docs / final summary 卡片
+- `frontend/lib/api.ts` `FlowDetail` 加 `handover_docs` + `final_summary_doc` 类型
+
+#### Added — Dify 集成设计文档
+- `/Users/admin/ai/resume/interview/liuxin/agent-builder/docs/dify-integration-offboarding-meeting-2026-05-17.md` — 方案 A/B/C 对比 + 详细架构图 + Phase 拆分
+
+#### Tested — 完整 E2E
+- `docs/e2e-test-report-2026-05-17.md` — 13 章节完整测试报告 + 15 张截图
+- 3 flow 全量验证：zhang.san（旧版） / li.si（新版 per-employee） / chen.liu（poll fix 后）
+- 每员工 10 个 Outline 文档（9 节点交接 + 1 总报告）成功归入独立 collection
+
 ### Phase 6 (2026-05-16) — 部署 + nginx 反代 + timeout_scan + 运维脚本 + 演示 runbook
 
 **交付**：DEPLOY-01/02/03/04/05 + NOTI-05 + TIMEOUT-01 全部 Complete

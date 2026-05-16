@@ -3,3 +3,6 @@ __pycache__
 .pytest_cache
 .venv
 .env
+# macOS AppleDouble metadata（防 tar 带过来污染镜像）
+._*
+.DS_Store

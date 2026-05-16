@@ -13,3 +13,7 @@ ALTER ROLE flow SET search_path TO app, public;
 
 -- 创建 uuid-ossp 扩展（PG 16 内置 gen_random_uuid，但留 uuid-ossp 兜底兼容旧 SQL）
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA public;
+
+-- Outline knowledge base 数据库（独立 DB，避免与 offboarding 业务表混）
+SELECT 'CREATE DATABASE outline OWNER flow ENCODING ''UTF8'''
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'outline')\gexec

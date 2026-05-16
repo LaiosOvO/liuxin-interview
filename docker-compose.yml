@@ -1,6 +1,6 @@
 services:
   offboarding-postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: offboarding-postgres
     environment:
       POSTGRES_USER: flow
@@ -9,7 +9,8 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - /data/offboarding/postgres-data:/var/lib/postgresql/data
+      # PostgreSQL 18+ 要求 mount 到 /var/lib/postgresql（不是 /data 子目录），见 docker-library/postgres#1259
+      - /data/offboarding/postgres-data:/var/lib/postgresql
       - ./deploy/init-db.sql:/docker-entrypoint-initdb.d/01-init-schemas.sql:ro
     restart: unless-stopped
     healthcheck:
@@ -21,7 +22,7 @@ services:
       - offboarding-net
 
   offboarding-redis:
-    image: redis:7-alpine
+    image: redis:latest
     container_name: offboarding-redis
     ports:
       - "6380:6379"
@@ -44,6 +45,9 @@ services:
     container_name: offboarding-flow-api
     ports:
       - "8000:8000"
+    # 让 .env 所有变量进容器（SMTP / GLM / MATTERMOST_* 等），不用在 environment 里逐一列
+    env_file:
+      - .env
     environment:
       APP_MODE: ${APP_MODE:-demo}
       APP_HOST: 0.0.0.0
@@ -96,6 +100,45 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    networks:
+      - offboarding-net
+
+  # Outline knowledge base —— 会议纪要协作文档
+  outline:
+    image: outlinewiki/outline:latest
+    container_name: offboarding-outline
+    ports:
+      - "3001:3000"
+    environment:
+      SECRET_KEY: ${OUTLINE_SECRET_KEY:?OUTLINE_SECRET_KEY 必须 openssl rand -hex 32}
+      UTILS_SECRET: ${OUTLINE_UTILS_SECRET:?OUTLINE_UTILS_SECRET 必须 openssl rand -hex 32}
+      DATABASE_URL: postgres://flow:${POSTGRES_PASSWORD}@offboarding-postgres:5432/outline
+      PGSSLMODE: disable
+      REDIS_URL: redis://offboarding-redis:6379/1
+      URL: ${OUTLINE_URL:-http://192.168.2.44:3001}
+      PORT: 3000
+      FORCE_HTTPS: "false"
+      FILE_STORAGE: local
+      FILE_STORAGE_LOCAL_ROOT_DIR: /var/lib/outline/data
+      FILE_STORAGE_UPLOAD_MAX_SIZE: "262144000"
+      # SMTP — magic link 登录用 QQ 邮箱
+      SMTP_HOST: ${SMTP_HOST:-smtp.qq.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM_EMAIL: ${SMTP_USER}
+      SMTP_REPLY_EMAIL: ${SMTP_USER}
+      SMTP_SECURE: "true"
+      # 默认主语言中文
+      DEFAULT_LANGUAGE: zh_CN
+    volumes:
+      - /data/outline:/var/lib/outline/data
+    depends_on:
+      offboarding-postgres:
+        condition: service_healthy
+      offboarding-redis:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - offboarding-net
 
