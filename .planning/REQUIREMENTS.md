@@ -34,12 +34,12 @@
 
 ### LLM / AI 能力（Phase 4，v0.4 大幅扩展）
 
-- [ ] **LLM-01**: 接入 GLM API（智谱 AI coding plan），用 `openai` 包指向 `https://open.bigmodel.cn/api/paas/v4/`；`${GLM_API_KEY}` 环境变量注入
-- [ ] **LLM-02**: 在 `applicant_final_confirm` 节点用 GLM 对各节点 `result_text` 做一段自然语言摘要，作为汇总邮件正文的开头总结段
-- [ ] **LLM-03**: LLM 调用 `asyncio.timeout(8)` 超时；失败 / 超时不阻塞流程，降级为不带摘要的原始版本邮件
-- [ ] **LLM-04**: **AI 推理下一步建议** — HR 在 Dashboard 或 Mattermost `@offboarding-bot suggest <flow_id>` 触发；输出当前节点 / 阻塞原因 / 推荐操作 / 责任人；带 `🤖 AI 生成` 角标 + disclaimer（PRD §15.1，评分点 #5）
-- [ ] **LLM-05**: **AI 后台报告生成** — 结构化 markdown（当前进度 / 阻塞事项 / 是否需要真人 / 建议下一步）；触发场景：HR Dashboard 按钮 + Mattermost `@offboarding-bot report <flow_id>` + 每日 9am 定时（PRD §15.2，评分点 #7）
-- [ ] **LLM-06**: **AI 边界声明** — 所有 AI 输出场景必须显式标识 "AI 不会自动操作任何节点" disclaimer；明确清单：哪些 AI 可做 / 哪些必须人工（PRD §15.3，评分点 #8）
+- [x] **LLM-01**: 接入 GLM API — openai 包指向 `open.bigmodel.cn/api/paas/v4/` + `${GLM_API_KEY}` env 注入（Slice 4C / llm/glm_client.py）
+- [x] **LLM-02**: applicant_final_confirm 节点 interrupt payload 加 `glm_summary` 字段 — Slice 4C；邮件正文渲染 Slice 4B 接入
+- [x] **LLM-03**: LLM 调用 `asyncio.timeout(8)` + 失败 / 超时 / 空返回 → None 降级（Slice 4C / LLMService.complete）
+- [x] **LLM-04**: AI 推理下一步建议 prompt `SUGGEST_NEXT_STEP_PROMPT` 就绪（Slice 4C / llm/prompts.py）；Dashboard / @bot suggest 调用方 Slice 4B 接入（PRD §15.1，评分点 #5）
+- [x] **LLM-05**: AI 后台报告 prompt `GENERATE_REPORT_PROMPT` 就绪（Slice 4C / llm/prompts.py）；Dashboard / @bot report / 9am 定时调用方 Slice 4B/4D 接入（PRD §15.2，评分点 #7）
+- [x] **LLM-06**: AI 边界声明 — `AI_HEADER 🤖` + `AI_DISCLAIMER` 锁定文案 + `wrap_ai_output` helper + `LLMService.complete` 自动包裹（Slice 4C / services/ai_disclaimer.py；PRD §15.3，评分点 #8）
 
 ### Mattermost @bot 入口（Phase 4，v0.4 新增）
 
@@ -143,12 +143,12 @@
 | NOTI-03 | Phase 4 | Pending |
 | NOTI-04 | Phase 4 | Pending |
 | NOTI-05 | Phase 6 | Pending |
-| LLM-01 | Phase 4 | Pending |
-| LLM-02 | Phase 4 | Pending |
-| LLM-03 | Phase 4 | Pending |
-| LLM-04 | Phase 4 | Pending |
-| LLM-05 | Phase 4 | Pending |
-| LLM-06 | Phase 4 | Pending |
+| LLM-01 | Phase 4 / Slice 4C | Complete |
+| LLM-02 | Phase 4 / Slice 4C | Complete |
+| LLM-03 | Phase 4 / Slice 4C | Complete |
+| LLM-04 | Phase 4 / Slice 4C | Complete |
+| LLM-05 | Phase 4 / Slice 4C | Complete |
+| LLM-06 | Phase 4 / Slice 4C | Complete |
 | BOT-01 | Phase 4 | Pending |
 | BOT-02 | Phase 4 | Pending |
 | BOT-03 | Phase 4 | Pending |

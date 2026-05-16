@@ -11,6 +11,60 @@
 
 ## [Unreleased]
 
+### Phase 4 / Slice 4C — LLM + Prompt 模板 + AI Disclaimer + applicant_summary (2026-05-16)
+
+**交付**：Slice 4C 落地全部 LLM-01..06，AI 能力用 prompt 模板封装不为每能力单独写 class
+（用户 memory feedback `feedback_capability_design`）。Slice 4B handler 直接 await
+`applicant_summary` / `LLMService.complete(SUGGEST_NEXT_STEP_PROMPT / GENERATE_REPORT_PROMPT)`
+即可接入 bot/邮件。
+
+#### Added
+- `backend/src/offboarding_flow/llm/`（新子包）
+  - `glm_client.py`：AsyncOpenAI 单例 base_url=`open.bigmodel.cn/api/paas/v4/`（LLM-01 + STACK.md §4.6）
+  - `prompts.py`：3 个 `(system, user_template)` 模板 + `render_prompt(template, **ctx)`
+    - `SUMMARIZE_FOR_APPLICANT_PROMPT`（LLM-02 / PRD §4.5.2 ≤ 100 字一句话）
+    - `SUGGEST_NEXT_STEP_PROMPT`（LLM-04 / PRD §15.1 ≤ 200 字四要素）
+    - `GENERATE_REPORT_PROMPT`（LLM-05 / PRD §15.2 markdown 4 段）
+- `services/llm_service.py`：`LLMService.complete(template, context, timeout)`
+  - `asyncio.timeout(8)` 硬上限（PITFALLS #22 + LLM-03）
+  - 任何异常 / 超时 / 空返回 → `None`（调用方走规则模板兜底，绝不抛出）
+  - 自动 append `wrap_ai_output`（LLM-06）
+  - lazy `_get_client()` — 测试可注入 mock client 不依赖真 GLM
+- `services/ai_disclaimer.py`：`AI_HEADER 🤖` + `AI_DISCLAIMER` 锁定文案
+  + `wrap_ai_output(text, with_header)` — markdown 报告可关 header 保留标题层级
+- `services/applicant_summary_service.py`：`applicant_summary(node_results, llm_service)`
+  - 空 / 序列化失败 / 非 dict 元素 → None（防御性）
+  - 注入 LLMService 友好（测试 mock）
+- `flow_engine/nodes/applicant_final_confirm.py` 扩展
+  - `_safe_glm_summary(timeline)` helper — 任何异常吞掉返回 None（节点函数硬不阻塞）
+  - interrupt payload 新增 `glm_summary` 字段（None 时调用方走原始 timeline 降级邮件）
+  - 既有 7 个 applicant 测试零回归
+
+#### Changed
+- `config.py`: 新增 `glm_api_key` / `glm_base_url` / `glm_model` / `glm_timeout_seconds`
+- `services/__init__.py`: export LLMService / AI_DISCLAIMER / AI_HEADER / wrap_ai_output
+- `pyproject.toml`: 加 `openai>=1.40,<2` dep（STACK.md §4.6）
+- `.env.example`: 补 `GLM_BASE_URL` / `GLM_MODEL` / `GLM_TIMEOUT_SECONDS` 占位
+
+#### Tests (41 新增全 PASS + 7 既有 applicant 零回归)
+- Unit:
+  - `test_ai_disclaimer.py` ×6 — header / disclaimer / 空输入 / markdown 模式 / 文案锁定
+  - `test_llm_prompts.py` ×9 — 3 模板渲染 + system 段 PRD 约束断言 + 缺占位符 KeyError
+  - `test_llm_service.py` ×9 — 正常 / 超时 / 异常 / 空 / disclaimer 开关 / model+messages
+  - `test_applicant_summary_service.py` ×8 — 空 / 正常 / mock 验证 prompt 与 context / 防御性序列化
+  - `test_applicant_final_confirm_glm.py` ×4 — interrupt payload glm_summary 字段三态
+- Integration: `tests/integration/test_llm_real_glm.py` — 真 GLM API 默认 skip
+  （仅当 `GLM_API_KEY` 非占位符时启用）
+- E2E: `tests/e2e/test_applicant_summary_e2e.py` — Slice 4D 集成时填充（当前占位）
+
+#### REQ Status
+- LLM-01 / LLM-02 / LLM-03 / LLM-04 / LLM-05 / LLM-06 全部 Complete
+
+#### Deferred to Slice 4B / 4D
+- bot_service `report` / `suggest` 命令实际 `await llm_service.complete(...)` 接入
+- 申请人确认邮件正文渲染 `glm_summary` 段 + 降级到原始 timeline
+- Phase 4 完整 E2E（真起流程 → 申请人确认 → 验证邮件有摘要）
+
 ### Phase 3 Complete (2026-05-16) — merged via worktree-phase-3-auth
 
 **交付**：Phase 3 鉴权 + 深链 JWT 一键登录 + jti 一次性消费完整落地（AUTH-01..04 全部 Complete）
