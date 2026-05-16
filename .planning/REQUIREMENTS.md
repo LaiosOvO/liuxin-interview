@@ -32,11 +32,34 @@
 - [ ] **NOTI-04**: 通知发送 / 失败 / 重试记录写入 `notifications` 表；outbox 表加 `UNIQUE(flow_id, node_state_id, channel)` 保证幂等
 - [ ] **NOTI-05**: 节点超时 (>24h) 后台 APScheduler `timeout_scan` job 每分钟扫描自动重发提醒给 assignee + HR（Phase 6 落地）
 
-### LLM 摘要（Phase 4，轻量增强）
+### LLM / AI 能力（Phase 4，v0.4 大幅扩展）
 
 - [ ] **LLM-01**: 接入 GLM API（智谱 AI coding plan），用 `openai` 包指向 `https://open.bigmodel.cn/api/paas/v4/`；`${GLM_API_KEY}` 环境变量注入
 - [ ] **LLM-02**: 在 `applicant_final_confirm` 节点用 GLM 对各节点 `result_text` 做一段自然语言摘要，作为汇总邮件正文的开头总结段
 - [ ] **LLM-03**: LLM 调用 `asyncio.timeout(8)` 超时；失败 / 超时不阻塞流程，降级为不带摘要的原始版本邮件
+- [ ] **LLM-04**: **AI 推理下一步建议** — HR 在 Dashboard 或 Mattermost `@offboarding-bot suggest <flow_id>` 触发；输出当前节点 / 阻塞原因 / 推荐操作 / 责任人；带 `🤖 AI 生成` 角标 + disclaimer（PRD §15.1，评分点 #5）
+- [ ] **LLM-05**: **AI 后台报告生成** — 结构化 markdown（当前进度 / 阻塞事项 / 是否需要真人 / 建议下一步）；触发场景：HR Dashboard 按钮 + Mattermost `@offboarding-bot report <flow_id>` + 每日 9am 定时（PRD §15.2，评分点 #7）
+- [ ] **LLM-06**: **AI 边界声明** — 所有 AI 输出场景必须显式标识 "AI 不会自动操作任何节点" disclaimer；明确清单：哪些 AI 可做 / 哪些必须人工（PRD §15.3，评分点 #8）
+
+### Mattermost @bot 入口（Phase 4，v0.4 新增）
+
+- [ ] **BOT-01**: Mattermost Outgoing Webhook 配置 + `POST /api/mattermost/webhook` 端点接收 trigger word `@offboarding-bot`；Token 校验防伪造
+- [ ] **BOT-02**: 命令解析器支持 `start` / `status` / `report` / `suggest` / `list` / `help` / `simulate-timeout` / `simulate-evidence-missing` 8 个命令；白名单 + 严格正则解析（PRD §16.2）
+- [ ] **BOT-03**: Bot 通过 PAT 调 `POST /api/v4/posts` 在原频道回复；启动流程的回复一次性输出案件 ID / 8 角色清单 / 10 节点状态 / 当前进度 / 阻塞 / 是否需要真人 / 建议下一步（PRD §16.4，评分点 #1-9 一次回答）
+- [ ] **BOT-04**: `start` 命令只允许 HR 角色或 Admin 触发；其他角色拒绝并提示
+
+### 任务逾期与证据缺失（Phase 4 部分 + Phase 6 完善）
+
+- [ ] **TIMEOUT-01**: 节点 SLA = `NODE_TIMEOUT_HOURS` env（默认 24h，演示用 `DEMO_TIMEOUT_OVERRIDE_HOURS=0.05`）；APScheduler `timeout_scan` 每分钟标记 `node_states.is_overdue=True`（PRD §17.1）
+- [ ] **TIMEOUT-02**: **证据缺失检测** — `result_text` 长度 < 5 字符 或显式标记 `evidence_missing=True`；AI 报告中标 "⚠️ 节点 result_text 为空 / 内容过短，疑似证据缺失"（PRD §17.2，评分点 #6）
+- [ ] **TIMEOUT-03**: Mattermost `@offboarding-bot simulate-timeout` / `simulate-evidence-missing` 命令支持立即触发，方便演示（PRD §17.1 + §17.2）
+- [ ] **TIMEOUT-04**: HR Dashboard 节点旁显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签
+
+### 加分项：自动动作节点（Phase 4.5，v0.4 新增）
+
+- [ ] **AUTO-01**: 新增 `AutoNode` 类型（不调用 `interrupt()` 直接执行）；演示节点 `auto_archive_to_storage` 插入 `applicant_final_confirm` 与 `archive` 之间（PRD §18.2，评分点 #9 加分项）
+- [ ] **AUTO-02**: docker-compose 加一个 `mock-archive-service` 容器（FastAPI 10 行）接收 POST 写入 `/data/{flow_id}.json`；演示自动节点调用外部 HTTP API（PRD §18.2）
+- [ ] **AUTO-03**: AutoNode 同样双写 `node_states`（status=done）+ `action_logs`（actor=`system:auto`）+ outbox 通知，证明架构对人机协同的对称支持
 
 ### 演示组织数据（Phase 4）
 
@@ -123,6 +146,20 @@
 | LLM-01 | Phase 4 | Pending |
 | LLM-02 | Phase 4 | Pending |
 | LLM-03 | Phase 4 | Pending |
+| LLM-04 | Phase 4 | Pending |
+| LLM-05 | Phase 4 | Pending |
+| LLM-06 | Phase 4 | Pending |
+| BOT-01 | Phase 4 | Pending |
+| BOT-02 | Phase 4 | Pending |
+| BOT-03 | Phase 4 | Pending |
+| BOT-04 | Phase 4 | Pending |
+| TIMEOUT-01 | Phase 6 | Pending |
+| TIMEOUT-02 | Phase 4 | Pending |
+| TIMEOUT-03 | Phase 4 | Pending |
+| TIMEOUT-04 | Phase 5 | Pending |
+| AUTO-01 | Phase 4.5 | Pending |
+| AUTO-02 | Phase 4.5 | Pending |
+| AUTO-03 | Phase 4.5 | Pending |
 | SEED-01 | Phase 4 | Pending |
 | SEED-02 | Phase 4 | Pending |
 | SEED-03 | Phase 4 | Pending |
@@ -138,9 +175,23 @@
 | DEPLOY-05 | Phase 1 + 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 31 total
-- Mapped to phases: 31
+- v1 requirements: 45 total（v0.4 新增 14 项：LLM-04/05/06 + BOT-01/02/03/04 + TIMEOUT-01/02/03/04 + AUTO-01/02/03）
+- Mapped to phases: 45
 - Unmapped: 0 ✓
+
+**面试评分点对照**（PRD §15.0 同步）：
+| # | 评分点 | 对应 REQ |
+|---|--------|---------|
+| 1 | 创建离职案件数据记录 | FLOW-01 |
+| 2 | ≥ 3 角色 | SEED-02（实际 8 角色） |
+| 3 | ≥ 5 任务步骤 | FLOW-01（实际 10 节点）|
+| 4 | 每任务有状态 | FLOW-02 + DB schema |
+| 5 | AI 输出下一步 | **LLM-04** |
+| 6 | 任务逾期 / 证据缺失 | **TIMEOUT-01/02/03/04** |
+| 7 | 输出后台报告 | **LLM-05 + BOT-03** |
+| 8 | 标 AI 不能做必须人工 | **LLM-06** |
+| 9 | 自动动作（加分）| **AUTO-01/02/03** |
+| + | @bot 启动（核心入口）| **BOT-01/02/03/04** |
 
 ---
 

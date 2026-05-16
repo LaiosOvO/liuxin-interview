@@ -16,11 +16,14 @@
 | 1 | **基建 + LangGraph 骨架** | 状态机引擎 + checkpoint + 业务表 schema + 最小 2 节点跑通；Docker 编排骨架 | FLOW-01/03, DEPLOY-01/04/05 | 3-4 天 | uvicorn 启动 → POST /api/flows 起流程 → POST advance 推进 → docker restart 后能从 interrupt 恢复 | LOW（HIGH confidence + 完整代码模板） |
 | 2 | **双写规范 + 节点完整化 + 申请人确认** | 业务事务 commit → graph.invoke 双写规范；10 节点全部实现 + 并行 fan-out；申请人最终确认节点 | FLOW-02/04/05/06 | 3-4 天 | 跑到任意节点故意 invoke 失败 → action_log.failed → recover 脚本可重试；申请人邮件聚合显示全 10 节点结果 | MEDIUM（双写一致性 + 幂等是项目最深的设计） |
 | 3 | **鉴权 + 深链 JWT 一键登录** | JWT 签发 + jti 一次性消费 + token→session 交换 + 按 role 渲染 | AUTH-01/02/03/04 | 2-3 天 | `asyncio.gather(exchange, exchange)` 并发同一 token 必须只有一个 200；跨角色 token 立即拒绝 | LOW（HIGH confidence + Redis SET NX EX 已成熟） |
-| 4 | **通知双通道 outbox + Seed + LLM 摘要** | outbox 模式异步通知 + QQ SMTP + Mattermost Bot + seed 演示数据 + GLM 摘要降级 | NOTI-01/02/03/04, LLM-01/02/03, SEED-01/02/03 | 4-5 天 | curl 起流程 → 10s 内 QQ 邮箱收到带角色前缀邮件；故意把 GLM_API_KEY 设错 → 申请人邮件无摘要但能发出；seed 跑两次 0 错误 | MEDIUM（Mattermost callback + QQ SMTP 限流需要 POC） |
-| 5 | **前端 Next.js + 多角色 + 申请人时间线** | 一键登录页 / 通用节点表单 / HR Dashboard / 申请人最终确认页 | WEB-01/02/03/04/05 | 4-5 天 | `pnpm build` 0 error；客户端路由刷新不 404；邮件点击→自动登录→看到对应角色页面→提交决策→流程推进 | MEDIUM（Next.js 15 静态导出 + Tailwind v4 是 2026 新栈） |
+| 4 | **通知 + Bot 入口 + AI 增强 + Seed + 逾期模拟**（v0.4 大幅扩展）| outbox 异步通知 + QQ SMTP + Mattermost Bot 双向（入站 webhook + 出站推送）+ seed 演示数据 + GLM 摘要 + AI 推理下一步 + AI 后台报告 + AI 边界声明 + 逾期/证据缺失模拟 | NOTI-01/02/03/04, **LLM-01~06**, **BOT-01~04**, **TIMEOUT-02/03**, SEED-01/02/03 | 6-8 天 | 在 Mattermost `@offboarding-bot start zhang.san` 立即收到 10 节点状态报告；`report <flow_id>` 输出 AI 分析含阻塞事项；`simulate-timeout` 立即触发逾期；curl 起流程 → 10s 内 QQ 邮箱收到带角色前缀邮件；seed 跑两次 0 错误 | MEDIUM-HIGH（Mattermost 入站 webhook + GLM API + 多触发场景）|
+| 4.5 | **加分项：自动动作节点演示（v0.4 新增）** | 新增 AutoNode 类型 + 演示 `auto_archive_to_storage` 节点调 mock HTTP API；docker-compose 加 mock-archive-service | AUTO-01/02/03 | 1 天 | 流程跑到 archive 前会自动调用 mock 服务把 node_results 写入文件；Mattermost 看到"自动执行"消息；演示话术清楚说明为什么其他节点不能自动化 | LOW（架构已支持，只需加节点类型 + mock service） |
+| 5 | **前端 Next.js + 多角色 + 申请人时间线 + 逾期标签** | 一键登录页 / 通用节点表单 / HR Dashboard（含 AI 报告按钮）/ 申请人最终确认页 / 逾期 + 证据缺失标签 | WEB-01/02/03/04/05, **TIMEOUT-04** | 4-5 天 | `pnpm build` 0 error；客户端路由刷新不 404；邮件点击→自动登录→看到对应角色页面→提交决策→流程推进；HR Dashboard 节点旁正确显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签 | MEDIUM（Next.js 15 静态导出 + Tailwind v4 是 2026 新栈） |
 | 6 | **部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨** | Dockerfile + nginx.conf + entrypoint.sh + APScheduler timeout_scan + 演示 runbook | DEPLOY-02/03, NOTI-05 | 2-3 天 | `docker compose up -d` 在 192.168.2.44 一键启动；E2E 演示通过；"Looks Done But Isn't" Checklist 全过 | LOW（HIGH confidence + 完整模板） |
 
-**总计**：18-22 工作日，31 个 v1 requirements 100% 覆盖。
+**总计**：21-26 工作日（v0.4 增量），**45 个 v1 requirements 100% 覆盖**（v0.3 base 31 + v0.4 增 14：AI 增强 6 + Bot 入口 4 + 逾期 4，含加分项）。
+
+**面试评分点对齐**：评分点 1-9（含加分项）+ Mattermost @bot 简化入口均映射到对应 phase，详见 [REQUIREMENTS.md 评分对照表](./REQUIREMENTS.md#面试评分点对照)。
 
 ---
 

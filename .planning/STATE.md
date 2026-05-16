@@ -26,8 +26,9 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 1 | 基建 + LangGraph 骨架 | ○ Pending |
 | 2 | 双写规范 + 节点完整化 + 申请人确认 | ○ Pending |
 | 3 | 鉴权 + 深链 JWT 一键登录 | ○ Pending |
-| 4 | 通知双通道 outbox + Seed + LLM 摘要 + AI 报告 + Mattermost @bot 入口 | ○ Pending |
-| 5 | 前端 Next.js + 多角色 + 申请人时间线 | ○ Pending |
+| 4 | 通知 + Bot 入口 + AI 增强 + Seed + 逾期模拟 | ○ Pending |
+| 4.5 | 加分项：自动动作节点演示 | ○ Pending |
+| 5 | 前端 Next.js + 多角色 + 申请人时间线 + 逾期标签 | ○ Pending |
 | 6 | 部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨 | ○ Pending |
 
 详见 [.planning/ROADMAP.md](./ROADMAP.md)。

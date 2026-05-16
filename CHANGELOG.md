@@ -13,6 +13,13 @@
 
 ### Added
 
+- **2026-05-16** — PRD v0.4 大幅扩展（面试评分点对齐 + Mattermost @bot 入口 + AI 增强）：
+  - 新增 §15 **AI 能力与边界声明**（含评分点对照表 + AI 推理下一步 LLM-04 + AI 后台报告 LLM-05 + AI 边界声明 LLM-06）
+  - 新增 §16 **Mattermost @bot 入口**（8 个命令：start / status / report / suggest / list / help / simulate-timeout / simulate-evidence-missing）
+  - 新增 §17 **任务逾期与证据缺失模拟**（demo 模式 3 分钟即触发 + 证据缺失检测）
+  - 新增 §18 **加分项：自动动作节点演示**（AutoNode + mock-archive-service）
+- **2026-05-16** — REQUIREMENTS.md v0.4：从 31 个 REQ 扩展到 **45 个 REQ**（新增 LLM-04/05/06 + BOT-01/02/03/04 + TIMEOUT-01/02/03/04 + AUTO-01/02/03 共 14 项）
+- **2026-05-16** — ROADMAP.md v0.4：Phase 4 大幅扩展（4-5 天 → 6-8 天）+ 新增 **Phase 4.5 加分项自动动作节点** + Phase 5 加 TIMEOUT-04 标签
 - **2026-05-16** — 初始化 GSD 项目结构（`.planning/`），生成 `PROJECT.md`（项目宪法）+ `config.json`（workflow 偏好：yolo / standard / balanced）
 - **2026-05-16** — 启动 GSD 4 个并行研究 agent（stack / features / architecture / pitfalls），完成 `STACK.md`（36KB） / `FEATURES.md` / `ARCHITECTURE.md` / `PITFALLS.md`，待合成 `SUMMARY.md`
 - **2026-05-16** — PRD v0.3 重大修订（详见 §0.3 changelog）：
