@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     https_enabled: bool = False
     session_cookie_name: str = "offboarding_session"
 
+    # Phase 4.5: AutoNode 外部归档服务（PRD §18 加分项）
+    archive_service_url: str = "http://mock-archive-service:5000/archive"
+    archive_service_timeout_seconds: float = 8.0
+    archive_service_max_retries: int = 3
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

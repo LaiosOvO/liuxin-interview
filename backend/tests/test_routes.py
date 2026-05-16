@@ -8,6 +8,7 @@ from offboarding_flow.flow_engine.routes import (
     APPLICANT_FINAL_CONFIRM,
     APPLY,
     ARCHIVE,
+    AUTO_ARCHIVE_TO_STORAGE,
     DEVICE_RETURN,
     HR_FINAL,
     HR_INITIAL,
@@ -72,15 +73,20 @@ class TestApplicant:
     def test_return_to_hr_final(self):
         assert route_after_applicant(_state("return")) == HR_FINAL
 
-    def test_advance_to_archive(self):
-        assert route_after_applicant(_state("advance")) == ARCHIVE
+    def test_advance_to_auto_archive(self):
+        """Phase 4.5（PRD §18）：advance 不再直接到 archive，先到 auto_archive_to_storage。"""
+        assert route_after_applicant(_state("advance")) == AUTO_ARCHIVE_TO_STORAGE
 
     def test_reject_falls_back_to_advance(self):
-        # 申请人节点无 reject — 防御性回退到 advance 路径（archive）
-        assert route_after_applicant(_state("reject")) == ARCHIVE
+        # 申请人节点无 reject — 防御性回退到 advance 路径（先到 auto_archive_to_storage）
+        assert route_after_applicant(_state("reject")) == AUTO_ARCHIVE_TO_STORAGE
 
-    def test_none_action_to_archive(self):
-        assert route_after_applicant(_state(None)) == ARCHIVE
+    def test_none_action_to_auto_archive(self):
+        assert route_after_applicant(_state(None)) == AUTO_ARCHIVE_TO_STORAGE
+
+    def test_archive_constant_still_exported(self):
+        """ARCHIVE 常量仍 export（拓扑里 auto_archive_to_storage → archive 用）。"""
+        assert ARCHIVE == "archive"
 
 
 def test_parallel_nodes_count_is_5():

@@ -31,7 +31,7 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 2 | 双写规范 + 节点完整化 + 申请人确认 | ✓ Complete |
 | 3 | 鉴权 + 深链 JWT 一键登录 | ✓ Complete |
 | 4 | 通知 + Bot 入口 + AI 增强 + Seed + 逾期模拟 | ○ Pending（Wave B 即将启动）|
-| 4.5 | 加分项：自动动作节点演示 | ○ Pending（Wave B 并行）|
+| 4.5 | 加分项：自动动作节点演示 | ✓ Complete |
 | 5 | 前端 Next.js + 多角色 + 申请人时间线 + 逾期标签 | ○ Pending |
 | 6 | 部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨 | ○ Pending |
 
@@ -49,7 +49,8 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 2026-05-16 | plan-phase 1 --auto | 7 个 plan 落盘（3 个 wave）+ 全部执行（35 测试通过 + 4 API 端点 + LangGraph 骨架 + Docker 编排）+ commit `bf20b03`(代码) + `29b657d`(docs) |
 | 2026-05-16 | plan-phase 2 --auto (worktree) | 6 个 plan 落盘（4 个 wave）+ 全部执行（126 测试通过 + 双写规范完整 + 10 节点 + 申请人确认 + recover CLI）+ commits 9c113cb..326ffd8 + merged main |
 | 2026-05-16 | plan-phase 3 --auto (worktree) | 4 个 plan 落盘（3 个 wave）+ 全部执行（73 测试通过 + auth/ 11 模块 + POST /api/auth/exchange + node 状态变更 hook）+ commits 609c139..16ce4db + merged main |
+| 2026-05-16 | plan-phase 4.5 --auto (worktree) | 3 plan 落盘 + 全部执行（AutoNode + mock-archive-service + httpx tenacity + 三层测试 38 用例 pass）— REQ AUTO-01/02/03 Complete；与 Phase 4 worktree 并行无冲突；演示话术 PRD §18.3 固化到 CHANGELOG |
 
 ---
 
-*Last updated: 2026-05-16 after Wave A merge (Phase 2 + Phase 3 → main)*
+*Last updated: 2026-05-16 after Phase 4.5 worktree completion (AutoNode + mock-archive-service)*

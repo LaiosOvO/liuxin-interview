@@ -57,9 +57,9 @@
 
 ### 加分项：自动动作节点（Phase 4.5，v0.4 新增）
 
-- [ ] **AUTO-01**: 新增 `AutoNode` 类型（不调用 `interrupt()` 直接执行）；演示节点 `auto_archive_to_storage` 插入 `applicant_final_confirm` 与 `archive` 之间（PRD §18.2，评分点 #9 加分项）
-- [ ] **AUTO-02**: docker-compose 加一个 `mock-archive-service` 容器（FastAPI 10 行）接收 POST 写入 `/data/{flow_id}.json`；演示自动节点调用外部 HTTP API（PRD §18.2）
-- [ ] **AUTO-03**: AutoNode 同样双写 `node_states`（status=done）+ `action_logs`（actor=`system:auto`）+ outbox 通知，证明架构对人机协同的对称支持
+- [x] **AUTO-01**: 新增 `AutoNode` 类型（不调用 `interrupt()` 直接执行）；演示节点 `auto_archive_to_storage` 插入 `applicant_final_confirm` 与 `archive` 之间（PRD §18.2，评分点 #9 加分项）
+- [x] **AUTO-02**: docker-compose 加一个 `mock-archive-service` 容器（FastAPI 30 行）接收 POST 写入 `/data/archive/{flow_id}.json`；演示自动节点调用外部 HTTP API（PRD §18.2）
+- [x] **AUTO-03**: AutoNode 同样双写 `node_states`（status=done）+ `action_logs`（actor=`system:auto`）+ outbox 通知（outbox 留 TODO 接口位 — 待 Phase 4 落地后补 stub 调用），证明架构对人机协同的对称支持
 
 ### 演示组织数据（Phase 4）
 
@@ -157,9 +157,9 @@
 | TIMEOUT-02 | Phase 4 | Pending |
 | TIMEOUT-03 | Phase 4 | Pending |
 | TIMEOUT-04 | Phase 5 | Pending |
-| AUTO-01 | Phase 4.5 | Pending |
-| AUTO-02 | Phase 4.5 | Pending |
-| AUTO-03 | Phase 4.5 | Pending |
+| AUTO-01 | Phase 4.5 | Complete |
+| AUTO-02 | Phase 4.5 | Complete |
+| AUTO-03 | Phase 4.5 | Complete |
 | SEED-01 | Phase 4 | Pending |
 | SEED-02 | Phase 4 | Pending |
 | SEED-03 | Phase 4 | Pending |

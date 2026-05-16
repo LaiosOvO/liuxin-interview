@@ -5,6 +5,7 @@
 Phase 2 Plan 02 新增：hr_initial / hr_final
 Phase 2 Plan 03 新增：device_return / access_revoke / knowledge_handover / finance_settle / legal_sign + _human_node_factory
 Phase 2 Plan 04 新增：applicant_final_confirm（DF-02 ★★★★★）+ archive
+Phase 4.5 新增：auto_archive_to_storage（PRD §18 加分项 — AutoNode 演示）
 """
 
 from .access_revoke import (
@@ -25,6 +26,12 @@ from .archive import (
     ARCHIVE_NODE_NAME,
     ARCHIVE_NODE_TITLE,
     archive_node,
+)
+from .auto_archive_to_storage import (
+    AUTO_ARCHIVE_TO_STORAGE_NODE_DESCRIPTION,
+    AUTO_ARCHIVE_TO_STORAGE_NODE_NAME,
+    AUTO_ARCHIVE_TO_STORAGE_NODE_TITLE,
+    auto_archive_to_storage_node,
 )
 from .device_return import (
     DEVICE_RETURN_NODE_DESCRIPTION,
@@ -115,6 +122,9 @@ __all__ = [
     "ARCHIVE_NODE_DESCRIPTION",
     "ARCHIVE_NODE_NAME",
     "ARCHIVE_NODE_TITLE",
+    "AUTO_ARCHIVE_TO_STORAGE_NODE_DESCRIPTION",
+    "AUTO_ARCHIVE_TO_STORAGE_NODE_NAME",
+    "AUTO_ARCHIVE_TO_STORAGE_NODE_TITLE",
     "DEVICE_RETURN_NODE_DESCRIPTION",
     "DEVICE_RETURN_NODE_NAME",
     "DEVICE_RETURN_NODE_TITLE",
@@ -140,6 +150,7 @@ __all__ = [
     "applicant_final_confirm_node",
     "apply_node",
     "archive_node",
+    "auto_archive_to_storage_node",
     "device_return_node",
     "finance_settle_node",
     "hr_final_node",

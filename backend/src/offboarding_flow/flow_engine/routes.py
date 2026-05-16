@@ -31,6 +31,7 @@ FINANCE_SETTLE = "finance_settle"
 LEGAL_SIGN = "legal_sign"
 HR_FINAL = "hr_final"
 APPLICANT_FINAL_CONFIRM = "applicant_final_confirm"
+AUTO_ARCHIVE_TO_STORAGE = "auto_archive_to_storage"  # Phase 4.5（PRD §18 加分项）
 ARCHIVE = "archive"
 
 # 5 并行节点（Plan 03 实现，Plan 05 总装）
@@ -95,11 +96,14 @@ def route_after_hr_final(state: OffboardingState) -> str:
 def route_after_applicant(state: OffboardingState) -> str:
     """applicant_final_confirm 两态决策路由（无 reject — PRD §4.5.2）。
 
+    Phase 4.5（PRD §18）：advance 不再直接到 archive，先到 auto_archive_to_storage
+    （自动调外部归档服务），成功后才会自动跑到 archive 终结。
+
     - return → hr_final（HR 复核）
-    - advance（及任何防御性回退）→ archive
+    - advance（及任何防御性回退）→ auto_archive_to_storage（自动节点）
     """
     action = state.get("current_action")
     logger.info("[route] after applicant_final_confirm action=%s", action)
     if action == "return":
         return HR_FINAL
-    return ARCHIVE
+    return AUTO_ARCHIVE_TO_STORAGE
