@@ -26,8 +26,8 @@
 
 ### 通知（Phase 4，双通道）
 
-- [~] **NOTI-01**: 节点进入 `waiting_human` 时通过 `notification_outbox` 表 + APScheduler `outbox_drain` 异步发送邮件（QQ 邮箱 smtp.qq.com:465 SSL）— 不阻塞节点函数 *(Slice 4A: outbox 入队 + EmailSender 实现完成；APScheduler drain 待 Slice 4D)*
-- [ ] **NOTI-02**: 同时通过 Mattermost Bot Personal Access Token 推送 Interactive Message 卡片
+- [~] **NOTI-01**: 节点进入 `waiting_human` 时通过 `notification_outbox` 表 + APScheduler `outbox_drain` 异步发送邮件（QQ 邮箱 smtp.qq.com:465 SSL）*(Slice 4A: outbox 入队 + EmailSender 完成；APScheduler drain 待 Slice 4D)*
+- [x] **NOTI-02**: 同时通过 Mattermost Bot Personal Access Token 推送 Interactive Message 卡片（Slice 4B — `notifications/mattermost_sender.py`）
 - [x] **NOTI-03**: 演示模式 (`APP_MODE=demo`) 下所有邮件路由到 `DEMO_INBOX=1624456575@qq.com`，主题前缀加角色标签 `[设备管理员·it.charlie]`，正文加横幅 *(Slice 4A: EmailEnvelope 收口完成)*
 - [x] **NOTI-04**: 通知发送 / 失败 / 重试记录写入 `notifications` 表；outbox 表加 `UNIQUE(flow_id, node_state_id, channel)` 保证幂等 *(Slice 4A: outbox 表 UNIQUE 约束 + OutboxRepository ON CONFLICT 幂等入队完成；notifications 表写入待 Slice 4D drain)*
 - [ ] **NOTI-05**: 节点超时 (>24h) 后台 APScheduler `timeout_scan` job 每分钟扫描自动重发提醒给 assignee + HR（Phase 6 落地）
@@ -43,10 +43,10 @@
 
 ### Mattermost @bot 入口（Phase 4，v0.4 新增）
 
-- [ ] **BOT-01**: Mattermost Outgoing Webhook 配置 + `POST /api/mattermost/webhook` 端点接收 trigger word `@offboarding-bot`；Token 校验防伪造
-- [ ] **BOT-02**: 命令解析器支持 `start` / `status` / `report` / `suggest` / `list` / `help` / `simulate-timeout` / `simulate-evidence-missing` 8 个命令；白名单 + 严格正则解析（PRD §16.2）
-- [ ] **BOT-03**: Bot 通过 PAT 调 `POST /api/v4/posts` 在原频道回复；启动流程的回复一次性输出案件 ID / 8 角色清单 / 10 节点状态 / 当前进度 / 阻塞 / 是否需要真人 / 建议下一步（PRD §16.4，评分点 #1-9 一次回答）
-- [ ] **BOT-04**: `start` 命令只允许 HR 角色或 Admin 触发；其他角色拒绝并提示
+- [x] **BOT-01**: Mattermost Outgoing Webhook 配置 + `POST /api/mattermost/webhook` 端点接收 trigger word `@offboarding-bot`；Token 校验防伪造（Slice 4B — `api/mattermost_webhook.py`）
+- [x] **BOT-02**: 命令解析器支持 `start` / `status` / `report` / `suggest` / `list` / `help` / `simulate-timeout` / `simulate-evidence-missing` 8 个命令；白名单 + 严格正则解析（Slice 4B — `services/bot_command_parser.py`）
+- [x] **BOT-03**: Bot 通过 PAT 调 `POST /api/v4/posts` 在原频道回复；启动流程的回复一次性输出案件 ID / 8 角色清单 / 11 节点状态 / 当前进度 / 阻塞 / 是否需要真人 / 建议下一步（Slice 4B — `services/bot_service.py` handle_start，PRD §16.4 9 段格式）
+- [x] **BOT-04**: `start` 命令只允许 HR 角色或 Admin 触发；其他角色拒绝并提示（Slice 4B — `services/bot_service.py` ROLES_ALLOWED_TO_START）
 
 ### 任务逾期与证据缺失（Phase 4 部分 + Phase 6 完善）
 
@@ -139,7 +139,7 @@
 | AUTH-03 | Phase 3 | Complete |
 | AUTH-04 | Phase 3 | Complete |
 | NOTI-01 | Phase 4 (Slice 4A) | Partial (outbox + envelope + SMTP sender 完成；APScheduler drain 待 Slice 4D) |
-| NOTI-02 | Phase 4 | Pending |
+| NOTI-02 | Phase 4 (Slice 4B) | Complete |
 | NOTI-03 | Phase 4 (Slice 4A) | Complete (EmailEnvelope 演示模式收口 + 角色前缀 + 横幅) |
 | NOTI-04 | Phase 4 (Slice 4A) | Complete (outbox UNIQUE 约束 + ON CONFLICT 幂等入队) |
 | NOTI-05 | Phase 6 | Pending |
@@ -149,10 +149,10 @@
 | LLM-04 | Phase 4 / Slice 4C | Complete |
 | LLM-05 | Phase 4 / Slice 4C | Complete |
 | LLM-06 | Phase 4 / Slice 4C | Complete |
-| BOT-01 | Phase 4 | Pending |
-| BOT-02 | Phase 4 | Pending |
-| BOT-03 | Phase 4 | Pending |
-| BOT-04 | Phase 4 | Pending |
+| BOT-01 | Phase 4 (Slice 4B) | Complete |
+| BOT-02 | Phase 4 (Slice 4B) | Complete |
+| BOT-03 | Phase 4 (Slice 4B) | Complete |
+| BOT-04 | Phase 4 (Slice 4B) | Complete |
 | TIMEOUT-01 | Phase 6 | Pending |
 | TIMEOUT-02 | Phase 4 | Pending |
 | TIMEOUT-03 | Phase 4 | Pending |

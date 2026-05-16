@@ -145,6 +145,69 @@
 - NOTI-04: Complete（outbox 幂等；notifications 表写入待 4D）
 
 ---
+### Phase 4 Slice 4B — Mattermost @bot 入口 + 出站发送器（2026-05-16）
+
+**交付**：Phase 4 Slice 4B 完整落地（NOTI-02 + BOT-01..04）— Mattermost 出站 +
+Outgoing Webhook 入站 + 8 命令 handler + role 校验。
+
+#### Added
+- `notifications/` 子包初版：
+  - `mattermost_sender.py` — httpx async Bot PAT 调 `POST /api/v4/posts` +
+    Interactive Message attachments + `build_action_attachment` helper；
+    `MattermostMessage` immutable DTO；4xx/5xx/网络错误统一抛 `MattermostSendError`
+- `services/bot_command_parser.py` — 严格正则白名单解析 8 命令（PRD §16.5 安全）：
+  username `[a-zA-Z][a-zA-Z0-9._-]{0,63}`，flow_id 8 位短 ID 或完整 UUID，
+  node_name 小写字母 + 数字 + 下划线（PRD §16.5 不接受 eval）
+- `services/bot_service.py` — 8 命令 handler 分发：
+  - `start <username>` 严格按 PRD §16.4 样例 9 段格式（案件 ID / 8 角色 / 11 节点 /
+    进度 / 阻塞 / 是否需人 / 建议 / AI disclaimer）；调用 FlowService.create_flow 复用 Phase 2 双写
+  - `status <flow_id>` 结构化进度卡片
+  - `list [active|completed|stuck]` — 列流程，stuck 过滤 `is_overdue=True`
+  - `help` — 列 8 命令清单 + disclaimer
+  - `simulate-timeout` — `UPDATE node_states SET is_overdue=True`（demo 用）
+  - `simulate-evidence-missing` — append `flow_instances.context.evidence_missing_nodes`
+  - `report` / `suggest` — Slice 4C 接 LLM；当前返回 stub "AI 报告功能开发中"
+  - BOT-04 role 校验：仅 `hr` / `hr_admin` / `admin` 可触发 start
+- `api/mattermost_webhook.py` — `POST /api/mattermost/webhook` 端点：
+  - Outgoing Webhook form-data（token / text / user_name / channel_id 等）
+  - Token 校验防伪造（不一致 401，PRD §16.5）
+  - 业务异常友好回复（不泄漏内部细节）
+  - 返回 Mattermost-compatible JSON `{"text": "...", "response_type": "in_channel"}`
+- `config.py` — 新增 Settings 字段：mattermost_url / team / bot_username /
+  bot_user_id / bot_token / **outgoing_webhook_token** / http_timeout
+- `.env.example` — 补 `MATTERMOST_OUTGOING_WEBHOOK_TOKEN` /
+  `MATTERMOST_HTTP_TIMEOUT` 占位（凭证仍占位 `changeme_in_real_env`）
+
+#### Tests
+- **单元（71 用例全 PASS）**：
+  - `test_bot_command_parser.py` — 38 用例覆盖 8 命令 + 参数 / 正则 / mention 剥离 /
+    大小写 / 边界
+  - `test_bot_service.py` — 12 用例覆盖 start 9 段格式 + BOT-04 role 校验 + 8 命令
+    dispatch 路由 + stub 标识 + AI disclaimer
+  - `test_mattermost_sender.py` — 11 用例（含端到端契约测试模拟 MM server）覆盖
+    URL / Bearer header / props.attachments / 4xx / 5xx / 网络错误 / context manager
+- **集成（5 用例 — 需 `TEST_DATABASE_URL`，默认 skip）**：
+  - `tests/integration/test_mattermost_webhook.py` — 真 PG + FastAPI ASGI 拦截：
+    token 校验 / help / 未知命令 / BOT-04 拒绝 / HR user start 成功且回复含 9 段
+- **跳过**：真 Mattermost 容器测试 — `docker compose up mattermost -d` 后导出
+  `MATTERMOST_BOT_TOKEN_REAL` 跑 e2e 标记
+
+#### Security
+- Outgoing Webhook token 校验（PRD §16.5 防伪造）
+- 命令解析全部走严格白名单正则（不 eval / 不动态执行）
+- start 命令 role 校验白名单：`hr` / `hr_admin` / `admin`（业务表 users.role）
+- 所有 AI 输出（help / start / report / suggest stub）必带 disclaimer
+  "AI 不会自动操作任何节点；所有决策必须人工确认"（CLAUDE.md §5）
+- Bot Token / Webhook Token 通过 `.env` 注入；`.env.example` 仅占位（CLAUDE.md §3.5）
+
+#### REQ Status
+- NOTI-02 / BOT-01 / BOT-02 / BOT-03 / BOT-04 全部 Complete (Slice 4B)
+
+#### Deferred
+- LLM 接入 report / suggest → Slice 4C
+- mattermost_sender 接入 outbox_drain（异步重试 / 幂等）→ Slice 4D
+- Mattermost AllowedUntrustedInternalConnections seed 健康检查（PITFALLS #7）→ Phase 6
+- 真 Mattermost 容器 e2e 测试 → 部署后补
 
 ### Phase 3 Complete (2026-05-16) — merged via worktree-phase-3-auth
 

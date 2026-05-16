@@ -73,6 +73,17 @@ class Settings(BaseSettings):
     # 演示模式所有邮件覆写到此地址（PRD §7.4.1）
     demo_inbox: str = "changeme_in_real_env@qq.com"
 
+    # Phase 4 / Slice 4B: Mattermost @bot 入口（PRD §7.2 + §16）
+    mattermost_url: str = "http://192.168.2.44:8065"
+    mattermost_team: str = "laios"
+    mattermost_bot_username: str = "offboarding-bot"
+    mattermost_bot_user_id: str = "__from_bot_create__"
+    mattermost_bot_token: str = "changeme_in_real_env"
+    # Outgoing Webhook token — Mattermost 后台创建 Outgoing Webhook 时生成
+    mattermost_outgoing_webhook_token: str = "changeme_in_real_env"
+    # HTTP timeout（秒）— Mattermost 内网调用，给短超时
+    mattermost_http_timeout: float = 10.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
