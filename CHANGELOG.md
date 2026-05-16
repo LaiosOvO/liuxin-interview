@@ -11,6 +11,64 @@
 
 ## [Unreleased]
 
+### Phase 5 (2026-05-16) — 前端 Next.js 15 静态导出 + 多角色页面 + TIMEOUT-04 节点标签
+
+**Scope**：WEB-01..05 + TIMEOUT-04 — 一键登录入口、通用 NodeForm、申请人最终确认页、HR Dashboard、员工 /my/flows。
+**Stack**：Next.js 15.1.4 + React 19 + TypeScript 5.7 + Tailwind v4 + shadcn/ui + react-hook-form + zod + pnpm 10.30.3 + Node 22。
+**关键决策**：`output: 'export'` 静态导出 → nginx 直接 serve（无 Node 运行时）；动态路由 `generateStaticParams: []` + nginx try_files 兜底（PITFALLS #19）；一键登录用 query string 而非动态路由（规避 Next.js 15 issue #79380）。
+
+#### Added — 项目骨架 (Plan 1+2)
+- `frontend/package.json` — Next.js 15.1.4 / React 19 / TypeScript 5.7 / Tailwind v4 / 锁 pnpm 10.30.3 + Node 22
+- `frontend/next.config.js` — `output:'export'` + `trailingSlash:true` + `images.unoptimized:true`
+- `frontend/tsconfig.json` — strict + bundler resolution + path alias `@/*`
+- `frontend/postcss.config.mjs` — `@tailwindcss/postcss`（v4 模式）
+- `frontend/app/globals.css` — Tailwind v4 + CSS 变量驱动 shadcn 主题（含 warning / success 色）
+- `frontend/components.json` — shadcn 配置（slate / cssVariables / lucide）
+- `frontend/.env.example` — `NEXT_PUBLIC_API_URL` + `NEXT_PUBLIC_APP_MODE`
+- `frontend/components/ui/*.tsx` — 12 个基础组件（fork 自 satnaing/shadcn-admin，改 import 路径适配 Next.js）：button / card / input / textarea / badge / dialog / separator / table / alert / label / form / skeleton
+- `frontend/components/ui/button.tsx` + `badge.tsx` 扩展 `warning` / `success` 变体（流程三态按钮 + 节点徽章）
+- `frontend/components/confirm-dialog.tsx` — 简化版（基于 Dialog 而非 alert-dialog，减一依赖）
+- `frontend/components/flow/node-form.tsx` — WEB-03 通用三态表单（继续=蓝 / 退回=黄 / 拒绝=红 + Confirm Dialog + react-hook-form + zod 校验）
+- `frontend/components/flow/node-status-badge.tsx` — TIMEOUT-04 节点状态徽章 + ⏰已超时 / ⚠️证据待补充 红黄标签
+- `frontend/components/flow/timeline-card.tsx` — WEB-04 时间线节点 Card（border-l 左竖线 + 圆点）
+- `frontend/components/role/role-banner.tsx` — 顶部"当前角色：xxx（username）"
+- `frontend/components/ai-disclaimer.tsx` — AI 输出 wrapper（🤖 AI 生成角标 + AI_DISCLAIMER，与 backend services/ai_disclaimer.py 文案严格一致）
+- `frontend/components/footer.tsx` — PITFALLS #10 防演示模式上线（footer 显式 APP_MODE + DEMO 模式黄底告警）
+- `frontend/lib/api.ts` — fetch wrapper + envelope 解析 + ApiError + authApi / flowApi
+- `frontend/lib/config.ts` — `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_APP_MODE` + ROLE_CN_MAP + AI_DISCLAIMER 常量
+- `frontend/lib/session.ts` — 客户端 session 元信息 localStorage（display only，鉴权全靠 HttpOnly cookie）
+- `frontend/lib/utils.ts` — cn / sleep / getPageNumbers / getDisplayNameInitials（fork 自 shadcn-admin）
+
+#### Added — 页面 (Plan 3)
+- `frontend/app/layout.tsx` — 根 layout（min-h-screen flex flex-col + Footer）
+- `frontend/app/flow/handle/page.tsx` — WEB-02 一键登录入口（query string + Suspense + useSearchParams + POST /api/auth/exchange + 失败重发占位）
+- `frontend/app/flow/[flow_id]/node/[node_id]/page.tsx` — WEB-03 通用节点处理页（useParams + 拉节点详情 + 名称是 applicant_final_confirm 自动重定向 + 渲染 NodeForm + generateStaticParams 空 + dynamicParams true）
+- `frontend/app/flow/[flow_id]/applicant-confirm/page.tsx` — WEB-04 申请人最终确认页（顶部 GLM 摘要 AIDisclaimer + 时间线 + NodeForm 仅 advance/return）
+
+#### Added — Dashboard + 个人页 + E2E (Plan 4)
+- `frontend/app/page.tsx` — 首页（根据 session role 自动跳 /hr/dashboard 或 /my/flows，无 session 显示登录提示）
+- `frontend/app/hr/dashboard/page.tsx` — WEB-05 HR Dashboard（统计卡 + 状态过滤 + 搜索 + 重发通知 + 后端 list 端点未实现时 gracefully mock fallback）
+- `frontend/app/my/flows/page.tsx` — WEB-05 员工视角（进度条 + 当前激活节点 + 跳节点页 / 跳确认页 + Suspense 包裹 useSearchParams）
+- `frontend/playwright.config.ts` + `frontend/tests/e2e/test_one_click_login.spec.ts` — E2E 占位（无 server 时 test.skip）
+
+#### REQ Status
+- WEB-01..05：全部 Complete
+- TIMEOUT-04：Complete（NodeStatusBadge 在 NodeForm / TimelineCard / 节点列表多处复用）
+
+#### Discovered / Planned
+- 后端 `GET /api/flows` list 端点未实现 → HR Dashboard + /my/flows 已 gracefully fallback mock 数据，TODO 注释指向 `backend/src/offboarding_flow/api/flows.py` 加 `@router.get("")` + `FlowService.list_flows()` 读 `flow_repo.list_all()`
+- 后端 `POST /api/notifications/{flow_id}/resend` 端点未实现 → "重发通知"按钮 try/catch 提示用户
+
+#### 设计 / 抄码来源
+- shadcn-admin（satnaing）— `src/components/ui/` 12 个基础组件 + `confirm-dialog.tsx` + `long-text.tsx` + `lib/utils.ts`
+- Kiranism/next-shadcn-dashboard-starter — Next.js 16 → 降级到 15.x 的依赖参考（v4 + RHF + RSC false 配置）
+- 业务专属组件（NodeForm / TimelineCard / RoleBanner / AIDisclaimer / NodeStatusBadge）按 PRD §4.5 + §6.2.4 + §15.3 自写
+
+#### Out of scope（v2）
+- React Flow 可视化 DAG / 移动端响应式 / i18n 多语 — FRONTEND_REFERENCES.md 已记录
+
+---
+
 ### Phase 4 Slice 4D (2026-05-16) — outbox drain（in-process 事件驱动）+ 证据缺失检测 + Seed + alembic 0002
 
 **用户明确两条**：

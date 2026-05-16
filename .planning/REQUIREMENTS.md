@@ -53,7 +53,7 @@
 - [ ] **TIMEOUT-01**: 节点 SLA = `NODE_TIMEOUT_HOURS` env（默认 24h，演示用 `DEMO_TIMEOUT_OVERRIDE_HOURS=0.05`）；APScheduler `timeout_scan` 每分钟标记 `node_states.is_overdue=True`（PRD §17.1）
 - [x] **TIMEOUT-02**: **证据缺失检测** — `result_text` 长度 < 5 字符 或显式标记 `evidence_missing=True`；AI 报告中标 "⚠️ 节点 result_text 为空 / 内容过短，疑似证据缺失" *(Slice 4D: workers/evidence_missing_detector + alembic 0002 加列)*（PRD §17.2，评分点 #6）
 - [ ] **TIMEOUT-03**: Mattermost `@offboarding-bot simulate-timeout` / `simulate-evidence-missing` 命令支持立即触发，方便演示（PRD §17.1 + §17.2）
-- [ ] **TIMEOUT-04**: HR Dashboard 节点旁显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签
+- [x] **TIMEOUT-04**: HR Dashboard 节点旁显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签（Phase 5 components/flow/node-status-badge.tsx，所有节点列表 / NodeForm / TimelineCard 均渲染）
 
 ### 加分项：自动动作节点（Phase 4.5，v0.4 新增）
 
@@ -69,11 +69,11 @@
 
 ### 前端（Phase 5，多角色 + 一键登录）
 
-- [ ] **WEB-01**: Next.js 15 静态导出 (`output: 'export'`) 由 nginx 直接 serve；Node 22 LTS + pnpm 11.1.1
-- [ ] **WEB-02**: 一键登录入口 `/flow/handle?flow_id=xxx&node_id=yyy&token=zzz`（query string 格式，规避 Next.js 15 issue #79380）自动换 session，按 role 跳转视图
-- [ ] **WEB-03**: 通用节点处理页 NodeForm（节点说明只读 + 详情文本输入必填 + 三态按钮颜色区分：继续=蓝 / 退回=黄 / 拒绝=红 + confirm dialog）
-- [ ] **WEB-04**: 申请人最终确认页（在通用表单上额外展示节点结果时间线 + GLM 摘要段）
-- [ ] **WEB-05**: HR Dashboard (`/hr/dashboard`) 总览所有流程；员工 `/my/flows` 查看自己进度；卡点筛选 + "重发通知"按钮
+- [x] **WEB-01**: Next.js 15 静态导出 (`output: 'export'`) 由 nginx 直接 serve；Node 22 LTS + pnpm 10.30.3
+- [x] **WEB-02**: 一键登录入口 `/flow/handle?flow_id=xxx&node_id=yyy&token=zzz`（query string 格式，规避 Next.js 15 issue #79380）自动换 session，按 role 跳转视图
+- [x] **WEB-03**: 通用节点处理页 NodeForm（节点说明只读 + 详情文本输入必填 + 三态按钮颜色区分：继续=蓝 / 退回=黄 / 拒绝=红 + confirm dialog）
+- [x] **WEB-04**: 申请人最终确认页（在通用表单上额外展示节点结果时间线 + GLM 摘要段）
+- [x] **WEB-05**: HR Dashboard (`/hr/dashboard`) 总览所有流程；员工 `/my/flows` 查看自己进度；卡点筛选 + "重发通知"按钮（后端 list 端点未实现时 gracefully fallback mock 数据）
 
 ### 部署（Phase 1 骨架 + Phase 6 完善）
 
@@ -156,18 +156,18 @@
 | TIMEOUT-01 | Phase 6 | Pending |
 | TIMEOUT-02 | Phase 4 | Pending |
 | TIMEOUT-03 | Phase 4 | Pending |
-| TIMEOUT-04 | Phase 5 | Pending |
+| TIMEOUT-04 | Phase 5 | Complete |
 | AUTO-01 | Phase 4.5 | Complete |
 | AUTO-02 | Phase 4.5 | Complete |
 | AUTO-03 | Phase 4.5 | Complete |
 | SEED-01 | Phase 4 | Pending |
 | SEED-02 | Phase 4 | Pending |
 | SEED-03 | Phase 4 | Pending |
-| WEB-01 | Phase 5 | Pending |
-| WEB-02 | Phase 5 | Pending |
-| WEB-03 | Phase 5 | Pending |
-| WEB-04 | Phase 5 | Pending |
-| WEB-05 | Phase 5 | Pending |
+| WEB-01 | Phase 5 | Complete |
+| WEB-02 | Phase 5 | Complete |
+| WEB-03 | Phase 5 | Complete |
+| WEB-04 | Phase 5 | Complete |
+| WEB-05 | Phase 5 | Complete |
 | DEPLOY-01 | Phase 1 + 6 | Pending |
 | DEPLOY-02 | Phase 6 | Pending |
 | DEPLOY-03 | Phase 6 | Pending |
