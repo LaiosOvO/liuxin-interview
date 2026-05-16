@@ -31,6 +31,8 @@ dependencies = [
   "structlog>=24.4,<26",
   "tenacity>=9,<10",
   "httpx>=0.28,<0.30",
+  # Phase 4 / Slice 4C: LLM (GLM via openai 兼容接口) — STACK.md §4.6
+  "openai>=1.40,<2",
 ]
 
 [project.optional-dependencies]

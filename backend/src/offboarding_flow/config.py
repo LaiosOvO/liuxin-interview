@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     https_enabled: bool = False
     session_cookie_name: str = "offboarding_session"
 
+    # Phase 4 / Slice 4C: LLM (GLM via openai 兼容接口) — LLM-01..06
+    glm_api_key: str = Field(default="changeme_in_real_env", validate_default=False)
+    glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4/"
+    glm_model: str = "glm-4.6"  # 演示低成本可改 glm-4-flash
+    glm_timeout_seconds: float = 8.0  # PITFALLS #22 — asyncio.timeout(8)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
