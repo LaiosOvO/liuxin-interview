@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { NodeStatusBadge } from '@/components/flow/node-status-badge';
+import { FlowDiagram } from '@/components/flow/flow-diagram';
 import { RoleBanner } from '@/components/role/role-banner';
 import { flowApi, ApiError } from '@/lib/api';
 import type { FlowDetail, NodeDetail } from '@/lib/api';
@@ -176,8 +177,10 @@ function FlowProgressCard({
   onConfirm: () => void;
 }) {
   const nodes = flow.nodes ?? [];
-  const total = nodes.length || flow.node_count;
+  // 进度按业务固定 11 节点算（与 DAG NODE_DEFS 对齐），避免 upsert 时机不同导致 1/3 vs 1/4 抖动
+  const TOTAL_BUSINESS_NODES = 11;
   const done = nodes.filter((n) => n.status === 'done').length;
+  const total = TOTAL_BUSINESS_NODES;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const activeNode = nodes.find((n) => n.status === 'waiting_human');
 
@@ -247,6 +250,57 @@ function FlowProgressCard({
           <div className="text-sm text-muted-foreground">
             {flow.status === 'completed' ? '流程已归档完成。' : '暂无等待处理的节点。'}
           </div>
+        )}
+
+        {/* DAG 流程图 — 可视化 + 节点可点 */}
+        {nodes.length > 0 && (
+          <>
+            <Separator />
+            <FlowDiagram flowId={flow.flow_id} nodes={nodes} />
+          </>
+        )}
+
+        {/* Phase 2: handover docs 协作文档链接 */}
+        {flow.handover_docs && flow.handover_docs.length > 0 && (
+          <>
+            <Separator />
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                📄 协作交接文档（{flow.handover_docs.length}）
+              </div>
+              <div className="space-y-1">
+                {flow.handover_docs.map((d) => (
+                  <a
+                    key={d.url}
+                    href={d.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-xs text-blue-600 hover:underline truncate"
+                  >
+                    📎 {d.node_title} — {d.title}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Phase 2: 完整交接总报告（流程 completed 后才有） */}
+        {flow.final_summary_doc && (
+          <>
+            <Separator />
+            <a
+              href={flow.final_summary_doc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block p-3 bg-success/10 border border-success/30 rounded text-sm hover:bg-success/20"
+            >
+              <div className="font-medium text-success">🎉 完整离职交接总报告</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {flow.final_summary_doc.title}
+              </div>
+            </a>
+          </>
         )}
       </CardContent>
     </Card>

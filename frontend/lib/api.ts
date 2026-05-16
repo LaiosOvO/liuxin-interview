@@ -121,6 +121,21 @@ export type NodeDetail = {
   payload?: Record<string, unknown> | null;
 };
 
+export type HandoverDocLink = {
+  node_name: string;
+  node_title: string;
+  url: string;
+  title: string;
+  provider: string;
+};
+
+export type FinalSummaryDoc = {
+  id: string;
+  url: string;
+  title: string;
+  provider: string;
+};
+
 export type FlowDetail = {
   flow_id: string;
   employee_id: string;
@@ -136,6 +151,9 @@ export type FlowDetail = {
     status: string;
     assignee: string | null;
   } | null;
+  // Phase 2: 节点交接文档 + 总报告
+  handover_docs?: HandoverDocLink[];
+  final_summary_doc?: FinalSummaryDoc | null;
 };
 
 export type SubmitActionBody = {

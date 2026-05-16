@@ -32,7 +32,11 @@ import { ClipboardCheck } from 'lucide-react';
 export function ApplicantConfirmClient() {
   const router = useRouter();
   const params = useParams<{ flow_id: string }>();
-  const flowId = params.flow_id;
+  let flowId = params.flow_id;
+  if (typeof window !== 'undefined' && flowId === 'placeholder') {
+    const m = window.location.pathname.match(/^\/flow\/([^/]+)\/applicant-confirm\/?$/);
+    if (m) flowId = m[1];
+  }
 
   const [nodes, setNodes] = useState<NodeDetail[]>([]);
   const [loading, setLoading] = useState(true);

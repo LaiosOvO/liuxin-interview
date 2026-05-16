@@ -6,8 +6,9 @@
  *
  * 注意：Next.js export 模式 env 在 build 时已经被替换成字面量，运行时无法再读 process.env。
  */
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+// 默认空串 → 走同源相对路径（依赖 nginx 反代 /api → flow-api:8000）
+// 开发本地启动后端时可设 NEXT_PUBLIC_API_URL=http://localhost:8000 覆盖
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export const APP_MODE = (process.env.NEXT_PUBLIC_APP_MODE ?? 'demo') as
   | 'demo'

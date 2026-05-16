@@ -26,8 +26,19 @@ import { ArrowLeft } from 'lucide-react';
 export function NodePageClient() {
   const router = useRouter();
   const params = useParams<{ flow_id: string; node_id: string }>();
-  const flowId = params.flow_id;
-  const nodeId = params.node_id;
+  // static export 兜底：nginx fallback 到 placeholder/index.html 时 useParams 返回 'placeholder'
+  // 实际 uuid 在 window.location.pathname 里，主动解析覆盖。
+  let flowId = params.flow_id;
+  let nodeId = params.node_id;
+  if (typeof window !== 'undefined' && (flowId === 'placeholder' || nodeId === 'placeholder')) {
+    const m = window.location.pathname.match(
+      /^\/flow\/([^/]+)\/node\/([^/]+)\/?$/
+    );
+    if (m) {
+      flowId = m[1];
+      nodeId = m[2];
+    }
+  }
 
   const [node, setNode] = useState<NodeDetail | null>(null);
   const [loading, setLoading] = useState(true);

@@ -58,13 +58,16 @@ function HandleInner() {
           node_id: nodeId ?? undefined,
         });
         setStage('success');
-        // 跳转优先级：后端 redirect_to > URL 中的 flow/node > 兜底 /my/flows
-        let target = result.redirect_to;
-        if (!target) {
-          target =
-            flowId && nodeId
-              ? `/flow/${flowId}/node/${nodeId}/`
-              : '/my/flows/';
+        // 跳转优先级：URL 中含 flow/node → 直接去节点页（用户从邮件深链进来就是要处理这个节点）
+        // 否则用后端 redirect_to → 兜底 /my/flows
+        // applicant 角色 + 申请人查看入口节点 → /my/flows（看自己的全部流程）
+        let target: string;
+        if (result.role === 'applicant') {
+          target = '/my/flows/';
+        } else if (flowId && nodeId) {
+          target = `/flow/${flowId}/node/${nodeId}/`;
+        } else {
+          target = result.redirect_to || '/my/flows/';
         }
         router.replace(target);
       } catch (e) {
