@@ -77,6 +77,48 @@ def _format_role_cn(role: str) -> str:
     return ROLE_CN_MAP.get(role, role)
 
 
+# ============================================================================
+# 演示模式 username → 真实邮箱映射表
+# ============================================================================
+# 用户明确：演示阶段把 8 个 demo user 分散到 3 个真实邮箱里收件，方便分类查看。
+#
+# 主流程链路（zhang.san 起 → li.si 批 → hr.bob 终审 → zhang.san 确认）→ 邮箱 A
+# 部门管理者 / IT （wang.wu / hr.alice / it.charlie）→ 邮箱 B
+# 后置 + 系统（fin.david / legal.eve / admin）→ 邮箱 C
+#
+# 通过 .env 的 DEMO_INBOX_MAP 覆盖；默认值见 PRD §9.1.3。
+DEMO_INBOX_MAP_DEFAULT: dict[str, str] = {
+    # 主流程链路 → 1624456575@qq.com
+    "zhang.san": "1624456575@qq.com",
+    "li.si": "1624456575@qq.com",
+    "hr.bob": "1624456575@qq.com",
+    # 部门管理者 / IT → 1691517500@qq.com
+    "wang.wu": "1691517500@qq.com",
+    "hr.alice": "1691517500@qq.com",
+    "it.charlie": "1691517500@qq.com",
+    # 后置 + 系统 → jingzhi.lu@wayz.ai
+    "fin.david": "jingzhi.lu@wayz.ai",
+    "legal.eve": "jingzhi.lu@wayz.ai",
+    "admin": "jingzhi.lu@wayz.ai",
+}
+
+
+def resolve_demo_inbox(username: str, settings: Settings) -> str:
+    """演示模式查 username 对应的真实收件箱。
+
+    优先级：
+    1. settings.demo_inbox_map（dict 字段，env JSON 覆盖）
+    2. 内置 DEMO_INBOX_MAP_DEFAULT
+    3. settings.demo_inbox（兜底全局收件箱，与原行为一致）
+    """
+    custom_map = getattr(settings, "demo_inbox_map", None)
+    if custom_map and isinstance(custom_map, dict) and username in custom_map:
+        return str(custom_map[username])
+    if username in DEMO_INBOX_MAP_DEFAULT:
+        return DEMO_INBOX_MAP_DEFAULT[username]
+    return settings.demo_inbox
+
+
 def build_envelope(
     *,
     recipient_real: str,
@@ -110,7 +152,8 @@ def build_envelope(
     is_demo = settings.is_demo
 
     if is_demo:
-        delivery_to = settings.demo_inbox
+        # 按 username 查映射表（用户明确的"邮箱映射表"），未配置时 fallback 全局 demo_inbox
+        delivery_to = resolve_demo_inbox(username, settings)
         subject = f"[{role_cn}·{username}] {base_subject}"
         banner = DEMO_BANNER_TEMPLATE.format(real_to=recipient_real, role_cn=role_cn)
         final_html = banner + body_html

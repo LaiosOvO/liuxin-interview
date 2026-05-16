@@ -26,20 +26,62 @@ def _make_settings(*, app_mode: str = "demo", demo_inbox: str = "1624456575@qq.c
 
 @pytest.mark.unit
 def test_envelope_demo_mode_overrides_delivery_to() -> None:
-    """演示模式：delivery_to 覆写为 DEMO_INBOX，recipient_real 保留真实地址（审计）。"""
+    """演示模式：未在映射表的 username 走全局 DEMO_INBOX fallback，recipient_real 保留审计。"""
     settings = _make_settings(app_mode="demo", demo_inbox="demo@qq.com")
     env = build_envelope(
-        recipient_real="it.charlie@demo.local",
+        recipient_real="unknown.user@demo.local",
         base_subject="离职流程 — 张三 — 设备归还待处理",
         body_html="<p>原始正文</p>",
         body_text="原始正文",
         role="it_admin",
+        username="unknown.user",  # 不在 DEMO_INBOX_MAP 中 → fallback
+        settings=settings,
+    )
+    assert env.recipient_real == "unknown.user@demo.local"
+    assert env.delivery_to == "demo@qq.com"
+    assert env.is_demo is True
+
+
+@pytest.mark.unit
+def test_envelope_demo_mode_routes_via_inbox_map() -> None:
+    """演示模式：已知 username 走 DEMO_INBOX_MAP_DEFAULT 路由到对应真实邮箱。
+
+    PRD §9.1.3 用户明确：8 个 demo user 按角色分散到 3 个真实邮箱便于分类查看。
+    """
+    settings = _make_settings(app_mode="demo", demo_inbox="fallback@qq.com")
+    # zhang.san 主流程链路 → 1624456575@qq.com
+    env1 = build_envelope(
+        recipient_real="zhang.san@demo.local",
+        base_subject="x",
+        body_html="<p>x</p>",
+        body_text="x",
+        role="employee",
+        username="zhang.san",
+        settings=settings,
+    )
+    assert env1.delivery_to == "1624456575@qq.com"
+    # it.charlie 部门管理者 / IT → 1691517500@qq.com
+    env2 = build_envelope(
+        recipient_real="it.charlie@demo.local",
+        base_subject="x",
+        body_html="<p>x</p>",
+        body_text="x",
+        role="it_admin",
         username="it.charlie",
         settings=settings,
     )
-    assert env.recipient_real == "it.charlie@demo.local"
-    assert env.delivery_to == "demo@qq.com"
-    assert env.is_demo is True
+    assert env2.delivery_to == "1691517500@qq.com"
+    # fin.david 后置 → jingzhi.lu@wayz.ai
+    env3 = build_envelope(
+        recipient_real="fin.david@demo.local",
+        base_subject="x",
+        body_html="<p>x</p>",
+        body_text="x",
+        role="finance",
+        username="fin.david",
+        settings=settings,
+    )
+    assert env3.delivery_to == "jingzhi.lu@wayz.ai"
 
 
 @pytest.mark.unit
