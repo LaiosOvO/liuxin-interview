@@ -80,27 +80,10 @@ def _format_role_cn(role: str) -> str:
 # ============================================================================
 # 演示模式 username → 真实邮箱映射表
 # ============================================================================
-# 用户明确：演示阶段把 8 个 demo user 分散到 3 个真实邮箱里收件，方便分类查看。
-#
-# 主流程链路（zhang.san 起 → li.si 批 → hr.bob 终审 → zhang.san 确认）→ 邮箱 A
-# 部门管理者 / IT （wang.wu / hr.alice / it.charlie）→ 邮箱 B
-# 后置 + 系统（fin.david / legal.eve / admin）→ 邮箱 C
-#
-# 通过 .env 的 DEMO_INBOX_MAP 覆盖；默认值见 PRD §9.1.3。
-DEMO_INBOX_MAP_DEFAULT: dict[str, str] = {
-    # 主流程链路 → 1624456575@qq.com
-    "zhang.san": "1624456575@qq.com",
-    "li.si": "1624456575@qq.com",
-    "hr.bob": "1624456575@qq.com",
-    # 部门管理者 / IT → 1691517500@qq.com
-    "wang.wu": "1691517500@qq.com",
-    "hr.alice": "1691517500@qq.com",
-    "it.charlie": "1691517500@qq.com",
-    # 后置 + 系统 → jingzhi.lu@wayz.ai
-    "fin.david": "jingzhi.lu@wayz.ai",
-    "legal.eve": "jingzhi.lu@wayz.ai",
-    "admin": "jingzhi.lu@wayz.ai",
-}
+# 用户决定：所有演示邮件统一路由到 DEMO_INBOX（1624456575@qq.com），
+# 主题前缀 `[角色中文·username]` 已经足以区分当前账号扮演的角色，
+# 无需再分散到多个邮箱。如需重新启用分类映射，把 entries 加回此 dict 即可。
+DEMO_INBOX_MAP_DEFAULT: dict[str, str] = {}
 
 
 def resolve_demo_inbox(username: str, settings: Settings) -> str:

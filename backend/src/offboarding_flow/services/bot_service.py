@@ -28,12 +28,15 @@ from sqlalchemy import String, cast, select, update
 from offboarding_flow.services.bot_command_parser import (
     CMD_HELP,
     CMD_LIST,
+    CMD_MEETING_INGEST,
+    CMD_MEETING_LIST,
     CMD_REPORT,
     CMD_SIMULATE_EVIDENCE_MISSING,
     CMD_SIMULATE_TIMEOUT,
     CMD_START,
     CMD_STATUS,
     CMD_SUGGEST,
+    CMD_USERS_SYNC,
     BotCommand,
 )
 from offboarding_flow.state_store.enums import FlowStatus, NodeStatus
@@ -81,6 +84,26 @@ NODE_TEMPLATE: list[tuple[int, str, str, str]] = [
 ROLES_ALLOWED_TO_START: frozenset[str] = frozenset({"hr", "hr_admin", "admin"})
 
 
+def _infer_role_from_username(username: str) -> str:
+    """按 demo username 约定推断 role（hr.* → hr, it.* → it_admin 等）。"""
+    name = username.lower()
+    if name.startswith("hr."):
+        return "hr_admin" if "admin" in name else "hr"
+    if name.startswith("it."):
+        return "it_admin"
+    if name.startswith("fin."):
+        return "finance"
+    if name.startswith("legal."):
+        return "legal"
+    if name in ("admin", "root"):
+        return "admin"
+    # manager 不好从名字推断，给 default applicant；用户后续可手动改
+    # 但 li.si / wang.wu 在演示里是 manager
+    if name in ("li.si", "wang.wu", "manager"):
+        return "manager"
+    return "applicant"
+
+
 # ---------------------------------------------------------------------------
 # 异常 / DTO
 # ---------------------------------------------------------------------------
@@ -100,12 +123,14 @@ class BotInvocationContext:
     user_id: Mattermost user ID（备用）
     channel_id: 触发的频道 ID（回复时用）
     user_role: 业务侧 role（从 users 表查到；未注册时为 None）
+    mm_helpers: 可选 {'post_channel': async fn, 'send_dm': async fn} — listener 注入
     """
 
     user_name: str
     user_id: str
     channel_id: str
     user_role: str | None = None
+    mm_helpers: dict | None = None  # post_channel(channel_id, msg) + send_dm(username, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +228,11 @@ class BotService:
         if cmd.name == CMD_HELP:
             return self.handle_help()
         if cmd.name == CMD_START:
-            return await self.handle_start(cmd.args[0], ctx)
+            # 自然语言"我要离职"由 parser 标记 SELF_APPLY_SENTINEL → 用调用者自己当 employee
+            from offboarding_flow.services.bot_command_parser import SELF_APPLY_SENTINEL
+
+            target = ctx.user_name if cmd.args[0] == SELF_APPLY_SENTINEL else cmd.args[0]
+            return await self.handle_start(target, ctx)
         if cmd.name == CMD_STATUS:
             return await self.handle_status(cmd.args[0])
         if cmd.name == CMD_REPORT:
@@ -216,8 +245,198 @@ class BotService:
             return await self.handle_simulate_timeout(cmd.args[0], cmd.args[1])
         if cmd.name == CMD_SIMULATE_EVIDENCE_MISSING:
             return await self.handle_simulate_evidence_missing(cmd.args[0], cmd.args[1])
+        if cmd.name == CMD_MEETING_INGEST:
+            return await self.handle_meeting_ingest(cmd.args[0], ctx)
+        if cmd.name == CMD_MEETING_LIST:
+            return await self.handle_meeting_list(ctx)
+        if cmd.name == CMD_USERS_SYNC:
+            return await self.handle_users_sync(ctx)
         # 不应到达 — bot_command_parser 已穷举
         raise ValueError(f"未实现的命令分支: {cmd.name}")
+
+    # ------------------------------------------------------------------ #
+    # meeting-ingest — AI 提取会议纪要 → Outline 文档 → channel + DM 分发
+    # ------------------------------------------------------------------ #
+    async def handle_meeting_ingest(
+        self,
+        raw_text: str,
+        ctx: "BotInvocationContext",
+    ) -> str:
+        """会议纪要 → AI 逐项分析 → Outline 创建文档 → channel post + 各 owner DM。
+
+        说明：dispatch 时如果走 WebSocket listener，DM 真发由 listener 注入的
+        mm_post_channel / mm_send_dm 回调完成；这里只返回 channel 立即回显的总结。
+        """
+        from offboarding_flow.services.meeting_service import MeetingService
+
+        try:
+            svc = MeetingService()
+            logger.info("[bot] meeting-ingest by=%s len=%d", ctx.user_name, len(raw_text))
+            extract = await svc.extract(raw_text)
+            analyzed = await svc.analyze(extract)
+        except Exception as e:
+            logger.exception("[bot] meeting analyze 失败: %s", e)
+            return (
+                "⚠️ 会议纪要分析失败 — 可能 GLM 暂时不可用，请稍后重试或检查纪要格式。\n"
+                f"错误：{e}"
+            )
+
+        # distribute（外部把 self._mm_helpers 注入到 ctx.extras 里时使用；
+        # 这里给一个降级路径 — 不真分发，只返回 channel 摘要）
+        mm_helpers = ctx.mm_helpers
+        doc_url: str | None = None
+        owners_notified: list[str] = []
+        if mm_helpers is not None:
+            try:
+                result = await svc.distribute(
+                    analyzed,
+                    ingested_by=ctx.user_name,
+                    channel_id=ctx.channel_id,
+                    mm_post_channel=mm_helpers["post_channel"],
+                    mm_send_dm=mm_helpers["send_dm"],
+                    mm_ensure_in_channel=mm_helpers.get("ensure_in_channel"),
+                )
+                doc_url = result.get("doc_url")
+                owners_notified = result.get("owners_notified", [])
+            except Exception as e:
+                logger.warning("[bot] distribute failed: %s", e)
+
+        # 给原 channel 回一条简短回执（distribute 已经 post 了完整 announce）
+        n_t = len(analyzed.tasks)
+        n_b = len(analyzed.blockers)
+        n_d = len(analyzed.decisions)
+        msg = [f"✅ 会议「**{extract.title}**」已分析完成"]
+        msg.append(f"- 任务 {n_t} 条 · 卡点 {n_b} 条 · 决策 {n_d} 条")
+        if doc_url:
+            msg.append(f"- 📄 协作文档：{doc_url}")
+        if owners_notified:
+            msg.append(f"- ✉️ 已 DM 通知：{', '.join('@'+o for o in owners_notified)}")
+        if mm_helpers is None:
+            msg.append("- ⚠️ (mm_helpers 未注入 — 仅返回摘要不分发)")
+        msg.append("")
+        msg.append(AI_DISCLAIMER)
+        return "\n".join(msg)
+
+    async def handle_users_sync(self, ctx: "BotInvocationContext") -> str:
+        """同步流程：MM API 拉所有 team user → upsert system users 表 → invite Outline。"""
+        try:
+            from sqlalchemy import select
+
+            from offboarding_flow.config import get_settings
+            from offboarding_flow.outline import get_outline_client
+            from offboarding_flow.state_store.models import User
+            from offboarding_flow.state_store.repositories import UserRepository
+
+            settings = get_settings()
+            # 1. 从 MM 拉所有 team users
+            mm_users = await self._fetch_mm_team_users(settings)
+            # 2. upsert 到 system users 表（按 username 推断 role；过滤 bot 和系统账号）
+            repo = UserRepository(self.session)
+            import re as _re
+
+            EMAIL_RE = _re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+            for mu in mm_users:
+                username = mu.get("username")
+                if not username:
+                    continue
+                # 跳过 bot 自身和明显系统账号
+                if mu.get("is_bot") or username in (
+                    settings.mattermost_bot_username,
+                    "system",
+                    "admin",
+                ):
+                    continue
+                raw_email = (mu.get("email") or "").strip()
+                # 无效或占位 email 用 demo 域兜底（让 Outline 验证通过）
+                email = raw_email if EMAIL_RE.match(raw_email) else f"{username}@demo.local"
+                role = _infer_role_from_username(username)
+                await repo.upsert(
+                    username=username,
+                    email=email,
+                    role=role,
+                    display_name=mu.get("nickname") or username,
+                )
+            await self.session.commit()
+
+            # 3. 重新读 system users → invite 到 Outline
+            users = (await self.session.execute(select(User))).scalars().all()
+            payloads = [
+                {
+                    "username": u.username,
+                    "email": u.email,
+                    "name": u.display_name or u.username,
+                    "role": "admin" if u.role in ("hr_admin", "admin") else "member",
+                }
+                for u in users
+            ]
+            client = get_outline_client()
+            result = await client.ensure_users(payloads)
+            return (
+                f"✅ 三层账号同步完成（MM → system → Outline）\n"
+                f"- MM 拉取：{len(mm_users)} 用户\n"
+                f"- system users 表：{len(users)} 用户\n"
+                f"- Outline 新建：{len(result['created'])}（{', '.join(result['created']) or '无'}）\n"
+                f"- Outline 已存在 skip：{len(result['skipped'])}（{', '.join(result['skipped']) or '无'}）"
+            )
+        except Exception as e:
+            logger.exception("[bot] users-sync error: %s", e)
+            return f"⚠️ 同步失败：{e}"
+
+    async def _fetch_mm_team_users(self, settings: Any) -> list[dict[str, Any]]:
+        """从 MM API 拉所有 team users（用 bot token）。"""
+        import httpx
+
+        # 先拿 team_id
+        async with httpx.AsyncClient(
+            base_url=settings.mattermost_url.rstrip("/"),
+            headers={"Authorization": f"Bearer {settings.mattermost_bot_token}"},
+            timeout=10,
+        ) as c:
+            tr = await c.get(f"/api/v4/teams/name/{settings.mattermost_team}")
+            tr.raise_for_status()
+            team_id = tr.json()["id"]
+            ur = await c.get("/api/v4/users", params={"in_team": team_id, "per_page": 100})
+            ur.raise_for_status()
+            return ur.json()
+
+    async def handle_meeting_list(self, ctx: "BotInvocationContext") -> str:
+        """列出 Outline 里"会议纪要"collection 下的最近文档。"""
+        try:
+            from offboarding_flow.outline import get_outline_client
+
+            client = get_outline_client()
+            cols = await client.list_collections(limit=20)
+            meet_col = next((c for c in cols if c.get("name", "").startswith("会议纪要")), None)
+            if not meet_col:
+                return "📭 尚无任何会议文档（先用 `meeting-ingest` 创建）"
+            # 调 Outline documents.list?collectionId=...
+            import httpx
+
+            from offboarding_flow.config import get_settings
+
+            settings = get_settings()
+            async with httpx.AsyncClient(
+                base_url=settings.outline_url.rstrip("/") + "/api",
+                headers={"Authorization": f"Bearer {settings.outline_api_token}"},
+                timeout=10,
+            ) as c:
+                resp = await c.post(
+                    "/documents.list",
+                    json={"collectionId": meet_col["id"], "limit": 10, "sort": "updatedAt"},
+                )
+            docs = resp.json().get("data", [])
+            if not docs:
+                return f"📭 collection「{meet_col['name']}」为空"
+            lines = [f"## 📚 最近 {len(docs)} 篇会议文档"]
+            for d in docs:
+                url = settings.outline_url.rstrip("/") + d.get("url", "")
+                lines.append(
+                    f"- [{d.get('title','(无标题)')}]({url}) · {d.get('updatedAt','')[:10]}"
+                )
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning("[bot] meeting-list error: %s", e)
+            return f"⚠️ 获取会议列表失败: {e}"
 
     # ------------------------------------------------------------------ #
     # help
@@ -248,11 +467,12 @@ class BotService:
     ) -> str:
         """创建新流程并返回评分点 #1-9 一次性回答的格式（PRD §16.4）。
 
-        BOT-04: 校验 ctx.user_role ∈ {hr, hr_admin, admin}；否则拒绝。
+        BOT-04: 校验 ctx.user_role ∈ {hr, hr_admin, admin}；员工给自己起流程（自助）放行。
         """
-        if ctx.user_role not in ROLES_ALLOWED_TO_START:
+        is_self_apply = employee_username == ctx.user_name
+        if not is_self_apply and ctx.user_role not in ROLES_ALLOWED_TO_START:
             raise BotPermissionError(
-                f"权限不足：仅 HR / Admin 可触发 start 命令；你的角色：{ctx.user_role or '未注册'}"
+                f"权限不足：HR / Admin 可代他人 start；员工只能给自己 start。你的角色：{ctx.user_role or '未注册'}"
             )
 
         # 1. 调用 FlowService.create_flow（复用 Phase 2 业务逻辑）

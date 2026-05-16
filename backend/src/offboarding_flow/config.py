@@ -13,7 +13,7 @@ import logging
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,7 +58,16 @@ class Settings(BaseSettings):
     # 默认 24h SLA；演示快速触发用 DEMO_TIMEOUT_OVERRIDE_HOURS（如 0.05 ≈ 3 分钟）
     # DEMO_TIMEOUT_OVERRIDE_HOURS 仅在 app_mode=demo 时生效，prod 永远走 NODE_TIMEOUT_HOURS
     node_timeout_hours: float = 24.0
-    demo_timeout_override_hours: float | None = None
+    # 空字符串视作 None（docker-compose 默认替换会传 "" 而非 unset）
+    demo_timeout_override_hours: float | None = Field(default=None)
+
+    @field_validator("demo_timeout_override_hours", mode="before")
+    @classmethod
+    def _empty_str_as_none(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     # 扫描频率：默认 60s 扫一次（与 outbox_drain 心跳一致量级）
     timeout_scan_interval_seconds: float = 60.0
 
@@ -91,6 +100,31 @@ class Settings(BaseSettings):
     mattermost_outgoing_webhook_token: str = "changeme_in_real_env"
     # HTTP timeout（秒）— Mattermost 内网调用，给短超时
     mattermost_http_timeout: float = 10.0
+
+    # Outline 协作文档（meeting-* 命令用）
+    outline_url: str = "http://192.168.2.44:3001"  # 外部访问 + Outline 内部使用
+    outline_api_token: str = Field(
+        default="changeme_when_outline_admin_created", validate_default=False
+    )
+
+    # Provider 路由：DOC_PROVIDER / IM_PROVIDER
+    doc_provider: str = "outline"  # outline | lark | wecom | dingtalk
+    im_provider: str = "mattermost"  # mattermost | lark | wecom | dingtalk
+
+    # Lark / 飞书（DOC_PROVIDER=lark 或 IM_PROVIDER=lark 时用）
+    lark_base_url: str = "https://open.feishu.cn"  # 国际版改 https://open.larksuite.com
+    lark_app_id: str = Field(default="changeme_lark_app_id", validate_default=False)
+    lark_app_secret: str = Field(default="changeme_lark_app_secret", validate_default=False)
+    lark_docs_folder_token: str = ""  # 文档存放根目录 token（可选）
+
+    # 企业微信
+    wecom_corp_id: str = ""
+    wecom_corp_secret: str = ""
+    wecom_agent_id: str = ""
+
+    # 钉钉
+    dingtalk_app_key: str = ""
+    dingtalk_app_secret: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

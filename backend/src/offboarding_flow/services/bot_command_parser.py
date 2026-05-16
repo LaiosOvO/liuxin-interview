@@ -34,6 +34,11 @@ CMD_HELP: Final = "help"
 CMD_SIMULATE_TIMEOUT: Final = "simulate-timeout"
 CMD_SIMULATE_EVIDENCE_MISSING: Final = "simulate-evidence-missing"
 
+# 会议纪要 ↔ Outline 协作文档（新增）
+CMD_MEETING_INGEST: Final = "meeting-ingest"
+CMD_MEETING_LIST: Final = "meeting-list"
+CMD_USERS_SYNC: Final = "users-sync"
+
 ALL_COMMANDS: Final[tuple[str, ...]] = (
     CMD_START,
     CMD_STATUS,
@@ -43,6 +48,9 @@ ALL_COMMANDS: Final[tuple[str, ...]] = (
     CMD_HELP,
     CMD_SIMULATE_TIMEOUT,
     CMD_SIMULATE_EVIDENCE_MISSING,
+    CMD_MEETING_INGEST,
+    CMD_MEETING_LIST,
+    CMD_USERS_SYNC,
 )
 
 LIST_FILTERS: Final[tuple[str, ...]] = ("active", "completed", "stuck")
@@ -62,6 +70,17 @@ _NODE_NAME_RE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 # bot mention 前缀（Outgoing Webhook 可能保留也可能剥掉）
 _MENTION_PREFIX_RE: Final = re.compile(r"^@\S+\s+")
+
+# 自然语言"申请离职"快捷指令 — 由调用方（webhook）用 user_name 当 employee_id 起流程
+SELF_APPLY_SENTINEL: Final = "__SELF__"
+_SELF_APPLY_PHRASES: Final = (
+    "我要离职",
+    "我要走了",
+    "申请离职",
+    "离职申请",
+    "提离职",
+    "想离职",
+)
 
 
 class BotCommandParseError(Exception):
@@ -97,6 +116,10 @@ def parse_command(text: str) -> BotCommand:
     stripped = _MENTION_PREFIX_RE.sub("", raw, count=1).strip()
     if not stripped:
         raise BotCommandParseError("命令为空（仅有 mention）")
+
+    # 自然语言"我要离职"等 → start SELF（webhook 层把 SELF 替换成 user_name）
+    if any(phrase in stripped for phrase in _SELF_APPLY_PHRASES):
+        return BotCommand(name=CMD_START, args=(SELF_APPLY_SENTINEL,), raw=raw)
 
     # tokenize（按空白分隔；保留连字符 — simulate-timeout 是单 token）
     tokens = stripped.split()
@@ -155,6 +178,26 @@ def parse_command(text: str) -> BotCommand:
                 f"node_name 格式不合法：'{args[1]}'（小写字母 / 数字 / 下划线，字母开头）"
             )
         return BotCommand(name=cmd_name, args=(args[0], args[1]), raw=raw)
+
+    if cmd_name == CMD_MEETING_INGEST:
+        # meeting-ingest 接受**任意后续多行文本**作为会议纪要原文
+        body = stripped[len(CMD_MEETING_INGEST) :].strip()
+        if not body:
+            raise BotCommandParseError("用法：meeting-ingest <粘贴会议纪要全文，支持多行>")
+        if len(body) < 30:
+            raise BotCommandParseError("会议纪要太短（< 30 字符）— 请粘贴完整内容")
+        # 整段当作单参数（不再按空白拆分）
+        return BotCommand(name=cmd_name, args=(body,), raw=raw)
+
+    if cmd_name == CMD_MEETING_LIST:
+        if args:
+            raise BotCommandParseError("meeting-list 不需要参数")
+        return BotCommand(name=cmd_name, args=(), raw=raw)
+
+    if cmd_name == CMD_USERS_SYNC:
+        if args:
+            raise BotCommandParseError("users-sync 不需要参数")
+        return BotCommand(name=cmd_name, args=(), raw=raw)
 
     # 不应到达 — ALL_COMMANDS 已穷举
     raise BotCommandParseError(f"内部错误：命令 '{cmd_name}' 未实现处理分支")

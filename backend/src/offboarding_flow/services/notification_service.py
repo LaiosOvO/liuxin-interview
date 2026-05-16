@@ -49,6 +49,21 @@ def _get_jinja_env() -> Environment:
     )
 
 
+# 角色中文映射（防 import 循环 — 跟 email_envelope 重复但解耦）
+_ROLE_CN_MAP: dict[str, str] = {
+    "applicant": "申请人",
+    "manager": "上级",
+    "hr": "HR",
+    "hr_admin": "HR 总监",
+    "it_admin": "设备管理员",
+    "finance": "财务",
+    "legal": "法务",
+    "kb_owner": "知识库负责人",
+    "archivist": "档案管理员",
+    "admin": "管理员",
+}
+
+
 def render_node_waiting_email(
     *,
     employee_name: str,
@@ -58,6 +73,7 @@ def render_node_waiting_email(
     username: str,
     deep_link_url: str,
     flow_id: uuid.UUID,
+    outline_url: str = "",
 ) -> tuple[str, str]:
     """渲染节点 waiting_human 提醒邮件（HTML + text 两个版本）。
 
@@ -77,14 +93,20 @@ def render_node_waiting_email(
         username=username,
         deep_link_url=deep_link_url,
         flow_id_short=flow_id_short,
+        outline_url=outline_url,
     )
     # 纯文本 fallback（不依赖 HTML 渲染的邮件客户端）
+    outline_hint = (
+        f"\n📝 协作文档：如需创建本节点的交接文档，请到 {outline_url} 新建后把 URL 粘到节点处理页\n"
+        if outline_url
+        else ""
+    )
     text_body = (
         f"您好，{username}：\n\n"
         f"员工 {employee_name} 的离职流程已进入【{node_title}】环节，"
         f"需要您（角色：{role_cn}）尽快处理。\n\n"
         f"节点说明：{node_description}\n\n"
-        f"立即处理：{deep_link_url}\n\n"
+        f"立即处理：{deep_link_url}{outline_hint}\n"
         f"流程 #{flow_id_short}\n"
         f"--\n离职流程系统（自动发送）"
     )
@@ -133,15 +155,7 @@ class NotificationService:
                 — 若为空（如测试），payload 里只存基础信息，drain 时再补
         """
         # 渲染上下文打包进 payload — drain 时直接拿去 envelope + send
-        payload: dict = {
-            "node_name": node_name,
-            "node_title": node_title,
-            "node_description": node_description,
-            "assignee_username": assignee_username,
-            "assignee_role": assignee_role,
-            "employee_name": employee_name,
-            "base_subject": f"离职流程 — {employee_name} — {node_title} 待处理",
-        }
+        deep_link_url = None
         if deep_link_token is not None and deep_link_payload is not None:
             from offboarding_flow.auth.deep_link import build_deep_link
 
@@ -150,10 +164,35 @@ class NotificationService:
                 deep_link_payload,
                 base_url=self.settings.deeplink_base_url,
             )
-            payload["deep_link_url"] = deep_link_url
-            payload["deep_link_token"] = deep_link_token
-        else:
-            payload["deep_link_url"] = None  # drain 时若仍为 None 需要重新签发 token
+
+        # 渲染 HTML + text body（含「创建协作文档」入口 — 用户可选）
+        role_cn = _ROLE_CN_MAP.get(assignee_role, assignee_role)
+        outline_url = getattr(self.settings, "outline_url", "")
+        html_body, text_body = render_node_waiting_email(
+            employee_name=employee_name,
+            node_title=node_title,
+            node_description=node_description,
+            role_cn=role_cn,
+            username=assignee_username,
+            deep_link_url=deep_link_url or "",
+            flow_id=flow_id,
+            outline_url=outline_url,
+        )
+
+        payload: dict = {
+            "node_name": node_name,
+            "node_title": node_title,
+            "node_description": node_description,
+            "assignee_username": assignee_username,
+            "assignee_role": assignee_role,
+            "role_cn": role_cn,
+            "employee_name": employee_name,
+            "base_subject": f"离职流程 — {employee_name} — {node_title} 待处理",
+            "body_html": html_body,
+            "body_text": text_body,
+            "deep_link_url": deep_link_url,
+            "deep_link_token": deep_link_token,
+        }
 
         row = await self.outbox_repo.enqueue(
             flow_id=flow_id,

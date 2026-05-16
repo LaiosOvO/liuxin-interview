@@ -30,6 +30,16 @@ async def create_flow(
     return ok(result)
 
 
+@router.get("")
+async def list_flows(
+    service: Annotated[FlowService, Depends(get_flow_service)],
+    limit: int = 50,
+) -> dict[str, Any]:
+    """HR Dashboard 列出所有流程（带当前节点 + assignee）。"""
+    flows = await service.list_flows(limit=limit)
+    return ok(flows, meta={"count": len(flows)})
+
+
 @router.get("/{flow_id}")
 async def get_flow(
     flow_id: uuid.UUID,

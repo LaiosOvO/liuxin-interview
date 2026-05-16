@@ -9,11 +9,15 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from offboarding_flow.auth import deep_link, jwt_service
+from offboarding_flow.auth.schemas import JWTPayload
+from offboarding_flow.config import get_settings
 from offboarding_flow.flow_engine.nodes import (
     APPLY_NODE_NAME,
     APPLY_NODE_TITLE,
@@ -31,6 +35,7 @@ from offboarding_flow.state_store.repositories import (
     ActionRepository,
     FlowRepository,
     NodeRepository,
+    UserRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +43,14 @@ logger = logging.getLogger(__name__)
 # manager_review 默认角色（Phase 4 假设 — Phase 5 接 users 表才能动态查 assignee 角色）
 _DEFAULT_MANAGER_ROLE = Role.MANAGER.value
 _DEFAULT_MANAGER_DESC = "请审阅离职申请，确认理由并选择 通过 / 退回 / 拒绝。"
+
+# 演示用默认 manager（未接 MM 真实组织关系时的 fallback）
+_DEFAULT_MANAGER_USERNAME = "li.si"
+
+# 申请人专属"查看入口"节点 — 让员工可以拿 deep link 进 /my/flows 看进度
+APPLICANT_VIEW_NODE_NAME = "applicant_view"
+APPLICANT_VIEW_NODE_TITLE = "申请人查看入口"
+_APPLICANT_VIEW_DESC = "您的离职流程已启动，可随时点击下方按钮查看当前进度与下一步。"
 
 
 class FlowService:
@@ -83,8 +96,23 @@ class FlowService:
             status=ActionStatus.SUCCESS,
             payload={"event": "flow_created", "employee_id": employee_id},
         )
-        # 提前 upsert apply（自动节点：done）+ manager_review（waiting_human）
-        # 节点函数 interrupt 重跑时这两次 upsert 不会重复
+        # 自动 ensure 演示账号（applicant + manager）— 让 exchange 7 步链能过 user 校验
+        user_repo = UserRepository(self.session)
+        await user_repo.upsert(
+            username=employee_id,
+            email=f"{employee_id}@demo.local",
+            role=Role.APPLICANT.value,
+            display_name=employee_id,
+        )
+        await user_repo.upsert(
+            username=_DEFAULT_MANAGER_USERNAME,
+            email=f"{_DEFAULT_MANAGER_USERNAME}@demo.local",
+            role=Role.MANAGER.value,
+            display_name=_DEFAULT_MANAGER_USERNAME,
+        )
+
+        # 提前 upsert apply（自动节点：done）+ manager_review（waiting_human，assignee=li.si）
+        # + applicant_view（waiting_human，assignee=申请人，专门给员工点 deep link 进入）
         await self.node_repo.upsert(
             flow_id=flow.id,
             node_name=APPLY_NODE_NAME,
@@ -96,29 +124,71 @@ class FlowService:
             node_name=MANAGER_REVIEW_NODE_NAME,
             node_title=MANAGER_REVIEW_NODE_TITLE,
             status=NodeStatus.WAITING_HUMAN,
+            assignee=_DEFAULT_MANAGER_USERNAME,
+        )
+        applicant_view_node = await self.node_repo.upsert(
+            flow_id=flow.id,
+            node_name=APPLICANT_VIEW_NODE_NAME,
+            node_title=APPLICANT_VIEW_NODE_TITLE,
+            status=NodeStatus.WAITING_HUMAN,
+            assignee=employee_id,
         )
 
         # Phase 4 Slice 4A: outbox 入队 manager_review email（事务内一致提交，REQ-NOTI-01/04）
         # 失败仅 log warning 不阻断主链路（双通道：Mattermost 还在 Slice 4B）
         if self.notification_service is not None and manager_node is not None:
+            manager_token, manager_payload = self._build_node_token(
+                flow_id=flow.id,
+                node=manager_node,
+                role=Role.MANAGER.value,
+                allowed_actions=["advance", "return", "reject"],
+            )
             try:
-                # Phase 4 未接 users 表：assignee_email 用 placeholder（演示模式被 envelope 覆写到 DEMO_INBOX）
-                # Phase 5 接 users 表后改为查真实邮箱
-                placeholder_email = f"{manager_node.assignee or 'manager'}@demo.local"
                 await self.notification_service.enqueue_node_email(
                     flow_id=flow.id,
                     node_state_id=manager_node.id,
                     node_name=MANAGER_REVIEW_NODE_NAME,
                     node_title=MANAGER_REVIEW_NODE_TITLE,
                     node_description=_DEFAULT_MANAGER_DESC,
-                    assignee_username=manager_node.assignee or "manager",
-                    assignee_email=placeholder_email,
+                    assignee_username=_DEFAULT_MANAGER_USERNAME,
+                    assignee_email=f"{_DEFAULT_MANAGER_USERNAME}@demo.local",
                     assignee_role=_DEFAULT_MANAGER_ROLE,
                     employee_name=employee_id,
+                    deep_link_payload=manager_payload,
+                    deep_link_token=manager_token,
                 )
             except Exception as enqueue_exc:
                 logger.warning(
-                    "[flow_service] outbox enqueue failed (non-fatal) flow=%s: %s",
+                    "[flow_service] manager outbox enqueue failed (non-fatal) flow=%s: %s",
+                    flow.id,
+                    enqueue_exc,
+                )
+
+        # 申请人"开始"邮件 — target applicant_view 节点（PRD §6.2 / §7.4）
+        if self.notification_service is not None and applicant_view_node is not None:
+            applicant_token, applicant_payload = self._build_node_token(
+                flow_id=flow.id,
+                node=applicant_view_node,
+                role=Role.APPLICANT.value,
+                allowed_actions=[],
+            )
+            try:
+                await self.notification_service.enqueue_node_email(
+                    flow_id=flow.id,
+                    node_state_id=applicant_view_node.id,
+                    node_name=APPLICANT_VIEW_NODE_NAME,
+                    node_title=APPLICANT_VIEW_NODE_TITLE,
+                    node_description=_APPLICANT_VIEW_DESC,
+                    assignee_username=employee_id,
+                    assignee_email=f"{employee_id}@demo.local",
+                    assignee_role=Role.APPLICANT.value,
+                    employee_name=employee_id,
+                    deep_link_payload=applicant_payload,
+                    deep_link_token=applicant_token,
+                )
+            except Exception as enqueue_exc:
+                logger.warning(
+                    "[flow_service] applicant kickoff email enqueue failed flow=%s: %s",
                     flow.id,
                     enqueue_exc,
                 )
@@ -158,6 +228,13 @@ class FlowService:
             None,
         )
 
+        # Step 4: 给申请人签一个 applicant_view 节点的一键登录 deep link（演示用）
+        applicant_deep_link = self._issue_applicant_deep_link(
+            flow_id=flow.id,
+            applicant_view_node_id=(applicant_view_node.id if applicant_view_node else None),
+            employee_id=employee_id,
+        )
+
         return {
             "flow_id": str(flow.id),
             "employee_id": flow.employee_id,
@@ -174,7 +251,97 @@ class FlowService:
                 if current_node
                 else None
             ),
+            "applicant_deep_link": applicant_deep_link,
         }
+
+    def _build_node_token(
+        self,
+        *,
+        flow_id: uuid.UUID,
+        node: Any,
+        role: str,
+        allowed_actions: list[str],
+    ) -> tuple[str, JWTPayload]:
+        """构造节点对应的 JWT token + payload。"""
+        settings = get_settings()
+        now = int(time.time())
+        username = node.assignee or "unknown"
+        payload = JWTPayload(
+            sub=username,
+            email=f"{username}@demo.local",
+            role=role,
+            flow_id=flow_id,
+            node_id=node.id,
+            node_name=node.node_name,
+            allowed_actions=allowed_actions,
+            iat=now,
+            exp=now + settings.token_expiry_hours * 3600,
+            jti=uuid.uuid4().hex,
+        )
+        return jwt_service.encode(payload), payload
+
+    def _issue_applicant_deep_link(
+        self,
+        *,
+        flow_id: uuid.UUID,
+        applicant_view_node_id: uuid.UUID | None,
+        employee_id: str,
+    ) -> str | None:
+        """签 applicant_view 节点深链 token（演示便利：起流程立即拿到登录链接）。
+
+        返回完整 `/flow/handle?...` URL。失败仅 log 不抛（不阻断主链路）。
+        """
+        if applicant_view_node_id is None:
+            return None
+        try:
+            settings = get_settings()
+            now = int(time.time())
+            payload = JWTPayload(
+                sub=employee_id,
+                email=f"{employee_id}@demo.local",
+                role=Role.APPLICANT.value,
+                flow_id=flow_id,
+                node_id=applicant_view_node_id,
+                node_name=APPLICANT_VIEW_NODE_NAME,
+                allowed_actions=[],
+                iat=now,
+                exp=now + settings.token_expiry_hours * 3600,
+                jti=uuid.uuid4().hex,
+            )
+            token = jwt_service.encode(payload)
+            return deep_link.build_deep_link(token, payload, base_url=settings.deeplink_base_url)
+        except Exception as exc:
+            logger.warning("[flow_service] issue applicant deep link failed: %s", exc)
+            return None
+
+    async def list_flows(self, limit: int = 50) -> list[dict[str, Any]]:
+        """HR Dashboard 用：返回所有流程实例（含当前节点 + assignee）。"""
+        flows = await self.flow_repo.list_all(limit=limit)
+        result: list[dict[str, Any]] = []
+        for flow in flows:
+            nodes = await self.node_repo.list_by_flow(flow.id)
+            current = next((n for n in nodes if n.status == "active"), None)
+            result.append(
+                {
+                    "flow_id": str(flow.id),
+                    "employee_id": flow.employee_id,
+                    "template": flow.template,
+                    "status": flow.status,
+                    "started_at": flow.started_at.isoformat() if flow.started_at else None,
+                    "completed_at": (flow.completed_at.isoformat() if flow.completed_at else None),
+                    "node_count": len(nodes),
+                    "current_node": (
+                        {
+                            "name": current.node_name,
+                            "title": current.node_title,
+                            "assignee": current.assignee,
+                        }
+                        if current is not None
+                        else None
+                    ),
+                }
+            )
+        return result
 
     async def get_flow(self, flow_id: uuid.UUID) -> dict[str, Any] | None:
         """读业务表返回流程状态（不读 LangGraph checkpoint — 双层状态分离）。"""
@@ -182,6 +349,7 @@ class FlowService:
         if flow is None:
             return None
         nodes = await self.node_repo.list_by_flow(flow_id)
+        ctx = flow.context or {}
         return {
             "flow_id": str(flow.id),
             "employee_id": flow.employee_id,
@@ -190,6 +358,10 @@ class FlowService:
             "started_at": flow.started_at.isoformat() if flow.started_at else None,
             "completed_at": (flow.completed_at.isoformat() if flow.completed_at else None),
             "node_count": len(nodes),
+            # Phase 2: 暴露 handover docs + final summary doc 给前端展示
+            "handover_docs": ctx.get("handover_docs", []),
+            "final_summary_doc": ctx.get("final_summary_doc"),
+            "node_results": ctx.get("node_results", []),
         }
 
     async def list_nodes(self, flow_id: uuid.UUID) -> list[dict[str, Any]]:

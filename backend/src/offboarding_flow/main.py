@@ -72,6 +72,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] outbox worker start failed (will continue): %s", e)
 
+    # Mattermost WebSocket listener — 让 bot 在线 + 支持 DM（用户要求）
+    mm_listener = None
+    try:
+        from offboarding_flow.workers.mattermost_listener import MattermostListener
+
+        mm_listener = MattermostListener(settings)
+        await mm_listener.start()
+        app.state.mm_listener = mm_listener
+        logger.info("[lifespan] mattermost listener started (bot online via WebSocket)")
+    except Exception as e:
+        logger.warning("[lifespan] mattermost listener start failed (will continue): %s", e)
+
     # Phase 6 — 起 TimeoutScanWorker（NOTI-05 + TIMEOUT-01，每 60s 扫超时节点）
     timeout_worker = None
     timeout_task = None
@@ -95,6 +107,13 @@ async def lifespan(app: FastAPI):
         logger.warning("[lifespan] timeout scan worker start failed (will continue): %s", e)
 
     yield
+
+    # 停 Mattermost listener
+    if mm_listener is not None:
+        try:
+            await mm_listener.stop()
+        except Exception as e:
+            logger.warning("[lifespan] mm_listener stop error: %s", e)
 
     # Phase 6 — 优雅停止 timeout worker（先于 outbox，让最后一批 outbox 仍能 drain）
     if timeout_worker is not None and timeout_task is not None:

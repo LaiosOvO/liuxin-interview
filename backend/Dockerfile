@@ -1,11 +1,18 @@
 # ============================================================
-# Stage 1: builder — uv 安装依赖 + 编译 bytecode
+# Stage 1: builder — pip 装 uv → uv 同步依赖（复用本地已有 python 基础镜像）
 # ============================================================
-FROM ghcr.io/astral-sh/uv:0.10-python3.12-bookworm-slim AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple \
+    UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple \
+    UV_EXTRA_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    UV_INDEX_STRATEGY=unsafe-best-match \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+
+RUN pip install --no-cache-dir 'uv>=0.10,<0.11'
 
 WORKDIR /app
 
@@ -24,8 +31,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================
 FROM python:3.12-slim-bookworm AS runtime
 
+# 切到清华镜像源（Docker Desktop hubproxy 不代理 mirrors.tuna，避开 502）
 # wget 用于 healthcheck；ca-certificates 用于 HTTPS
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g; s|http://security.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
         wget \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*

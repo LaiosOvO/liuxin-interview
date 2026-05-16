@@ -187,11 +187,11 @@ def _envelope_from_payload(payload: dict, *, recipient: str, settings: "Settings
 
     return build_envelope(
         recipient_real=recipient,
-        base_subject=payload.get("subject", "（无主题）"),
-        body_html=payload.get("html", ""),
-        body_text=payload.get("text") or "",
-        role=payload.get("role") or "employee",
-        username=payload.get("username") or "unknown",
+        base_subject=payload.get("base_subject") or payload.get("subject") or "（无主题）",
+        body_html=payload.get("body_html") or payload.get("html") or "",
+        body_text=payload.get("body_text") or payload.get("text") or "",
+        role=payload.get("assignee_role") or payload.get("role") or "applicant",
+        username=payload.get("assignee_username") or payload.get("username") or "unknown",
         settings=settings,
     )
 

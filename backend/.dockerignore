@@ -1,3 +1,6 @@
+# macOS tar 打包时会写 AppleDouble 元数据文件 ._* → Python alembic 加载会因含 null bytes 报 SyntaxError
+._*
+.DS_Store
 .venv/
 __pycache__/
 *.pyc
@@ -10,6 +13,6 @@ coverage.xml
 tests/
 .git/
 .gitignore
-README*.md
+# 不排除 README.md — pyproject.toml 引用它，uv sync 需要
 .env*
 *.log

@@ -8,13 +8,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
+# 前端已落地路由（Phase 5）：
+# - applicant → /my/flows （个人视角，会查所有流程）
+# - 其他角色 → /flow/[flow_id]/node/[node_id] （通用节点处理页）
 _PATHS: dict[str, str] = {
-    "applicant": "/flow/{flow_id}/applicant",
-    "manager": "/flow/{flow_id}/node/{node_id}/manager",
-    "hr": "/flow/{flow_id}/node/{node_id}/hr",
-    "it_admin": "/flow/{flow_id}/node/{node_id}/it",
-    "finance": "/flow/{flow_id}/node/{node_id}/finance",
-    "legal": "/flow/{flow_id}/node/{node_id}/legal",
+    "applicant": "/my/flows",
+    "manager": "/flow/{flow_id}/node/{node_id}/",
+    "hr": "/flow/{flow_id}/node/{node_id}/",
+    "it_admin": "/flow/{flow_id}/node/{node_id}/",
+    "finance": "/flow/{flow_id}/node/{node_id}/",
+    "legal": "/flow/{flow_id}/node/{node_id}/",
+    "kb_owner": "/flow/{flow_id}/node/{node_id}/",
+    "archivist": "/flow/{flow_id}/node/{node_id}/",
 }
 
 
