@@ -9,8 +9,10 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from offboarding_flow.auth.deps import get_redis_dep
 from offboarding_flow.flow_engine.graph import get_graph
 from offboarding_flow.services import FlowService, NodeService
 from offboarding_flow.state_store.repositories import (
@@ -58,8 +60,9 @@ def get_node_service(
     flow_repo: Annotated[FlowRepository, Depends(get_flow_repo)],
     node_repo: Annotated[NodeRepository, Depends(get_node_repo)],
     action_repo: Annotated[ActionRepository, Depends(get_action_repo)],
+    redis: Annotated[Redis, Depends(get_redis_dep)],
 ) -> NodeService:
-    """Phase 2 Plan 01：注入 session_factory（new_session）供失败补偿使用。"""
+    """合并 Phase 2 (session_factory 失败补偿) + Phase 3 (Redis token 失效)。"""
     graph = get_graph()
     return NodeService(
         session=session,
@@ -68,4 +71,5 @@ def get_node_service(
         action_repo=action_repo,
         graph=graph,
         session_factory=new_session,
+        redis=redis,
     )

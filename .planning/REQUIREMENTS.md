@@ -19,10 +19,10 @@
 
 ### 鉴权与深链（Phase 3）
 
-- [ ] **AUTH-01**: 邮件 / IM 链接携带 JWT (含 `sub` / `role` / `flow_id` / `node_id` / `jti` / `exp`)，HS256 签名
-- [ ] **AUTH-02**: 点击深链 → 前端调 `POST /api/auth/exchange` 用 token 换 HttpOnly Cookie；按 `role` 渲染对应视图
-- [ ] **AUTH-03**: Token 一次性消费 — Redis `SET NX EX` 原子操作（防双击 race，PITFALLS #6）；节点状态变更时所有未消费 token 失效
-- [ ] **AUTH-04**: Session 与 `(flow_id, node_id, sub)` 三元组绑定；跨节点 / 跨角色复用立即拒绝
+- [x] **AUTH-01**: 邮件 / IM 链接携带 JWT (含 `sub` / `role` / `flow_id` / `node_id` / `jti` / `exp`)，HS256 签名
+- [x] **AUTH-02**: 点击深链 → 前端调 `POST /api/auth/exchange` 用 token 换 HttpOnly Cookie；按 `role` 渲染对应视图
+- [x] **AUTH-03**: Token 一次性消费 — Redis `SET NX EX` 原子操作（防双击 race，PITFALLS #6）；节点状态变更时所有未消费 token 失效
+- [x] **AUTH-04**: Session 与 `(flow_id, node_id, sub)` 三元组绑定；跨节点 / 跨角色复用立即拒绝
 
 ### 通知（Phase 4，双通道）
 
@@ -134,10 +134,10 @@
 | FLOW-04 | Phase 2 | Complete |
 | FLOW-05 | Phase 2 | Complete |
 | FLOW-06 | Phase 2 | Complete |
-| AUTH-01 | Phase 3 | Pending |
-| AUTH-02 | Phase 3 | Pending |
-| AUTH-03 | Phase 3 | Pending |
-| AUTH-04 | Phase 3 | Pending |
+| AUTH-01 | Phase 3 | Complete |
+| AUTH-02 | Phase 3 | Complete |
+| AUTH-03 | Phase 3 | Complete |
+| AUTH-04 | Phase 3 | Complete |
 | NOTI-01 | Phase 4 | Pending |
 | NOTI-02 | Phase 4 | Pending |
 | NOTI-03 | Phase 4 | Pending |

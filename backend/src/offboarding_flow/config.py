@@ -42,9 +42,12 @@ class Settings(BaseSettings):
     # 部署 URL（R1 待 Phase 6 修正 — 当前保持与原 .env.example 一致）
     deeplink_base_url: str = "http://192.168.2.44:3000"
 
-    # Phase 3/4 占位（Phase 1 不读，但允许 .env 出现这些 key 不报错）
+    # Phase 3: 鉴权 / JWT / Session
     jwt_secret: str = Field(default="changeme_in_real_env", validate_default=False)
     token_expiry_hours: int = 24
+    session_expiry_hours: int = 24
+    https_enabled: bool = False
+    session_cookie_name: str = "offboarding_session"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -76,6 +79,12 @@ def get_settings() -> Settings:
     logger.warning("APP_VERSION = %s", settings.app_version)
     logger.warning("LOG_LEVEL = %s", settings.log_level)
     logger.warning("=" * 60)
+    # Phase 3: 生产模式 JWT_SECRET 校验 — 禁止默认占位值上线
+    if settings.app_mode == "prod" and settings.jwt_secret in {
+        "changeme_in_real_env",
+        "changeme_in_real_env_openssl_rand_hex_32",
+    }:
+        raise RuntimeError("生产模式（APP_MODE=prod）必须设置 JWT_SECRET（openssl rand -hex 32）")
     return settings
 
 

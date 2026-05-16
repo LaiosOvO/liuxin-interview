@@ -47,8 +47,16 @@ async def health_check() -> dict[str, Any]:
     except Exception as e:
         components["graph"] = f"fail: {type(e).__name__}"
 
-    # Redis 检查（Phase 1 不接 Redis 业务，仅占位；Phase 3 引入 Redis 客户端再 ping）
-    components["redis"] = "not_checked"
+    # Redis 检查（Phase 3 接入真 ping）
+    try:
+        from offboarding_flow.auth.redis_client import get_redis
+
+        redis = await get_redis()
+        await redis.ping()
+        components["redis"] = "ok"
+    except Exception as e:
+        components["redis"] = f"fail: {type(e).__name__}"
+        logger.warning("[health] redis check failed: %s", e)
 
     status = "ok" if components.get("db") == "ok" else "degraded"
 

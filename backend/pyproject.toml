@@ -25,6 +25,8 @@ dependencies = [
   "langgraph-checkpoint-postgres>=2,<4",
   # Redis（Phase 3 鉴权才真用）
   "redis>=5.2,<7",
+  # JWT（Phase 3 鉴权 — pyjwt 替代 python-jose，已 deprecated SUMMARY R3）
+  "pyjwt[crypto]>=2.10,<3",
   # 日志 / 工具
   "structlog>=24.4,<26",
   "tenacity>=9,<10",

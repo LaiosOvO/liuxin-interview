@@ -23,12 +23,13 @@ import uuid
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from offboarding_flow.auth import jti_service
 from offboarding_flow.state_store.enums import (
     ActionStatus,
     ActionType,
@@ -40,6 +41,9 @@ from offboarding_flow.state_store.repositories import (
     FlowRepository,
     NodeRepository,
 )
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +77,7 @@ class NodeService:
         action_repo: ActionRepository,
         graph: Any,
         session_factory: SessionFactory | None = None,
+        redis: "Redis | None" = None,
     ) -> None:
         self.session = session
         self.flow_repo = flow_repo
@@ -81,6 +86,7 @@ class NodeService:
         self.graph = graph
         # 用 _default_session_factory 默认值（测试可注入 mock）
         self.session_factory: SessionFactory = session_factory or _default_session_factory
+        self.redis = redis
 
     async def submit_action(
         self,
@@ -156,6 +162,24 @@ class NodeService:
             node_id,
             action,
         )
+
+        # ---- Step 3.5 (Phase 3): 节点状态变更后失效该 node 所有未消费 token（PRD §6.2.3）----
+        if self.redis is not None:
+            try:
+                invalidated = await jti_service.invalidate_node_tokens(self.redis, node_id)
+                if invalidated > 0:
+                    logger.info(
+                        "[node_service] invalidated %d tokens for node=%s",
+                        invalidated,
+                        node_id,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[node_service] invalidate tokens failed (non-fatal) flow=%s node=%s err=%s",
+                    flow_id,
+                    node_id,
+                    e,
+                )
 
         # ---- Step 4: 推进 graph（失败时新 session mark failed + raise）----
         config = {"configurable": {"thread_id": str(flow_id)}}

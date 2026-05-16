@@ -11,6 +11,55 @@
 
 ## [Unreleased]
 
+### Phase 3 Complete (2026-05-16) — merged via worktree-phase-3-auth
+
+**交付**：Phase 3 鉴权 + 深链 JWT 一键登录 + jti 一次性消费完整落地（AUTH-01..04 全部 Complete）
+
+#### Added
+- auth/ 子包 10 文件：jwt_service / deep_link / jti_service / cookie / role_router / session_service / deps / errors / schemas / redis_client
+- `POST /api/auth/exchange` — PRD §6.2.2 锁定 7 步校验链
+- `POST /api/auth/logout` — 清 cookie
+- 节点状态变更后 token 失效 hook（NodeService.submit_action 在 session.commit 后调 jti_service.invalidate_node_tokens；失败仅 log warning 不阻断主链路）
+- get_current_user + require_role(*roles) FastAPI Depends 体系
+- 全局 AuthError handler — 统一 401 envelope（detail='鉴权失败' 不泄露细节，server log 写 reason）
+- HttpOnly + SameSite=Lax cookie（PITFALLS #12 — 不能 Strict 否则邮件跨站跳失效）
+- secure=(APP_MODE=='prod' and HTTPS_ENABLED) — 内网 HTTP 不开 Secure
+- 深链 URL 方案 A query string 格式（PRD §6.2 + SUMMARY R2 — 规避 Next.js 15 issue #79380）
+- Redis SET NX EX 原子操作消费 jti（PITFALLS #6 防双击 race）
+- node:jti:{node_id} SET 维护未消费 token 集合（SADD+EXPIRE pipeline 防永驻）
+- 测试三层（CLAUDE.md §2）：
+  - 单元 25 用例 PASS：schema 11 + jwt_service 8 + deep_link 5 + cookie 5 + role_router 8（不依赖 DB/Redis）
+  - 集成 22 用例（含 20 并发同 jti 仅 1 胜出 race 测试 + 9 端点失败路径 + 10 jti service + 3 节点 hook）— 需真 PG/Redis；环境无故 SKIP
+  - E2E 3 用例：20 并发 race / role isolation / cross_flow rejection
+- 覆盖 ROADMAP §Phase 3 Success Criteria 1-5
+
+#### Changed
+- api/health.py Redis 从 not_checked 升级为真 ping
+- NodeService 构造新增可选 redis 参数；DI 容器 get_node_service 注入
+- main.py lifespan shutdown 加 dispose_redis
+- api/errors.py 注册 AuthError 全局 handler
+- .env.example Phase 3 段补全 SESSION_EXPIRY_HOURS / HTTPS_ENABLED / SESSION_COOKIE_NAME 占位
+- .pre-commit-config.yaml mypy 加 types-redis 依赖
+
+#### Security
+- JWT_SECRET 启动校验：APP_MODE=prod 时拒绝默认占位值（防演示密钥上线）
+- HS256 + pyjwt[crypto] dep（不用 python-jose，已 deprecated — SUMMARY R3）
+- decode leeway=0 严格 exp 校验
+- 失败统一 detail='鉴权失败'，不泄露具体 reason
+- 集成测试用真 Redis + 真 PG 不 mock（CLAUDE.md §2.3 + 用户 memory feedback）
+
+#### REQ Status
+- AUTH-01 / AUTH-02 / AUTH-03 / AUTH-04 全部完成
+
+#### Deferred to Future Phase
+- 把 token 拼进邮件 → Phase 4 (NOTI-01/02)
+- 前端 /flow/handle 静态壳页面 → Phase 5 (WEB-02)
+- nginx log_format query 脱敏 → Phase 6 (PITFALLS #13)
+- HTTPS 启用 + cookie secure=True 生效 → Phase 6
+- API rate limiting (slowapi) → Phase 6
+- JWT_SECRET 轮换机制 → v2
+- SSO 替代演示用一键登录 → v2 (PROD-01)
+
 ### Added (Phase 2)
 
 - 2026-05-16 — Phase 2 Plan 06：全流程 E2E 测试 + recover 工具集成测试
@@ -83,7 +132,6 @@
   - `state_store/session.py` 暴露 `new_session()` 上下文管理器供失败补偿新开 session
   - `scripts/recover_from_db.py`：扫 failed action 重 invoke graph，支持 `--flow-id` / `--dry-run` / `--max-retries`
   - 测试：5 个 state_store 签名校验 + 5 个 double_write 集成测试（含 graph 失败 → action_log.failed 校验）+ 5 个 recover_from_db 单测
-
 ### Phase 1 Complete (2026-05-16)
 
 **交付**：

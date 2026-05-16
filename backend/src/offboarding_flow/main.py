@@ -71,6 +71,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] shutdown error: %s", e)
 
+    # Phase 3 — 关 Redis 连接池
+    try:
+        from offboarding_flow.auth.redis_client import dispose_redis
+
+        await dispose_redis()
+    except Exception as e:
+        logger.warning("[lifespan] dispose_redis error: %s", e)
+
 
 def create_app() -> FastAPI:
     """构建 FastAPI 应用。"""
@@ -98,6 +106,15 @@ def create_app() -> FastAPI:
             "[create_app] flows/nodes routers not yet implemented (Plan 06): %s",
             e,
         )
+
+    # Phase 3 — 鉴权路由（/api/auth/exchange + /api/auth/logout）
+    try:
+        from offboarding_flow.api.auth import router as auth_router
+
+        app.include_router(auth_router)
+        logger.info("[create_app] mounted auth_router")
+    except ImportError as e:
+        logger.info("[create_app] auth router not yet implemented: %s", e)
 
     return app
 

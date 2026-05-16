@@ -22,6 +22,7 @@ repos:
           - pydantic>=2.10
           - pydantic-settings>=2.6
           - sqlalchemy[mypy]>=2.0
+          - types-redis>=4
         args: [--ignore-missing-imports]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
