@@ -8,3 +8,5 @@ out/
 .vercel
 test-results/
 playwright-report/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
