@@ -13,6 +13,8 @@
 
 ### Added
 
+- **2026-05-16** — 创建项目级 **`CLAUDE.md`**（AI 协作约定）：明确「能并行就并行开发」+ 「E2E 测试用 browser-harness」+ 项目特定的双层状态分离 / 节点幂等 / 演示模式 / 中文化等约束
+- **2026-05-16** — Phase 1 `discuss-phase --auto` 完成：`.planning/phases/01-langgraph-schema/01-CONTEXT.md` 落盘，含 13 项实现决策（部署到 192.168.2.44 + 独立 postgres 容器端口 5433 + 双 schema 隔离 + dynamic interrupt + uv src layout 等）
 - **2026-05-16** — PRD v0.4 大幅扩展（面试评分点对齐 + Mattermost @bot 入口 + AI 增强）：
   - 新增 §15 **AI 能力与边界声明**（含评分点对照表 + AI 推理下一步 LLM-04 + AI 后台报告 LLM-05 + AI 边界声明 LLM-06）
   - 新增 §16 **Mattermost @bot 入口**（8 个命令：start / status / report / suggest / list / help / simulate-timeout / simulate-evidence-missing）

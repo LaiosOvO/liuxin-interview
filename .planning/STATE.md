@@ -11,11 +11,11 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 ## Current Status
 
-**Stage:** Ready for Phase 1 planning
+**Stage:** Phase 1 context captured — Ready for plan-phase
 
-**Last completed:** GSD init（PROJECT.md / config.json / 4 维度研究 / SUMMARY / REQUIREMENTS / ROADMAP / STATE）
+**Last completed:** Phase 1 discuss-phase `--auto`（CONTEXT.md 落盘） + CLAUDE.md（项目级 AI 协作约定）
 
-**Next action:** `/gsd:discuss-phase 1` — 收集 Phase 1（基建 + LangGraph 骨架）的实现决策
+**Next action:** `/gsd:plan-phase 1` — 基于 CONTEXT.md + SUMMARY.md 生成 Phase 1 可执行 plan
 
 ---
 
@@ -40,6 +40,8 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | Date | Stage | What happened |
 |------|-------|---------------|
 | 2026-05-16 | Init | PROJECT.md + config.json + 4 个并行研究 agent 完成 + SUMMARY 合成 + FRONTEND_REFERENCES 调研 + REQUIREMENTS + ROADMAP 落盘 |
+| 2026-05-16 | Init | PRD v0.4 大幅扩展（对齐面试 9 项评分点 + Mattermost @bot 入口 + AI 增强）+ REQUIREMENTS 扩到 45 个 REQ + ROADMAP 加 Phase 4.5 加分项 |
+| 2026-05-16 | discuss-phase 1 | CONTEXT.md 落盘（auto 模式 + 用户即时约束：psql 数据库 + 部署 192.168.2.44）+ CLAUDE.md 创建（并行开发 + browser-harness E2E 约定）|
 
 ---
 
