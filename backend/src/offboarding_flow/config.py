@@ -107,9 +107,12 @@ class Settings(BaseSettings):
         default="changeme_when_outline_admin_created", validate_default=False
     )
 
-    # Provider 路由：DOC_PROVIDER / IM_PROVIDER
-    doc_provider: str = "outline"  # outline | lark | wecom | dingtalk
-    im_provider: str = "mattermost"  # mattermost | lark | wecom | dingtalk
+    # Provider 路由：DOC_PROVIDER / IM_PROVIDER (单)，IM_PROVIDERS (复，5.3 多 listener 并存)
+    doc_provider: str = "outline"  # outline | lark | wecom | dingtalk | huly
+    im_provider: str = "mattermost"  # 兼容字段 — IM_PROVIDERS 为空时回退到此
+    im_providers: str = (
+        ""  # 复数，逗号分隔 "mattermost,huly" 多 listener 并存；空则用 im_provider 单值
+    )
 
     # Lark / 飞书（DOC_PROVIDER=lark 或 IM_PROVIDER=lark 时用）
     lark_base_url: str = "https://open.feishu.cn"  # 国际版改 https://open.larksuite.com

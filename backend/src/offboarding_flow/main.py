@@ -72,49 +72,63 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] outbox worker start failed (will continue): %s", e)
 
-    # IM listener — 按 IM_PROVIDER 动态选择实现（ABS-01 / ABS-04 / HULY-07）
-    # 让 bot 在线 + 支持 DM（用户要求）
-    # 用 IMListener 抽象类型注解，让 MattermostListener / HulyListener 双绑兼容
+    # IM listener — 支持多 listener 并存（5.3 抽象升级）：
+    #   IM_PROVIDERS=mattermost,huly  → 同时启 MM + Huly listener，双平台对 bot 说"我要离职"都能起流程
+    #   IM_PROVIDERS=""  → 回退到 IM_PROVIDER (单)，保持 backwards compat
+    # 用 IMListener 抽象类型注解，所有 provider 走同一套 Protocol
     from offboarding_flow.im.protocol import IMListener as _IMListenerProto
 
-    im_listener: _IMListenerProto | None = None
+    im_listeners: list[_IMListenerProto] = []
     app.state.huly_listener = None  # Plan 05 — internal_huly 路由会读这个属性
+
+    # 解析 provider 列表：优先 IM_PROVIDERS 复数，回退到 IM_PROVIDER 单值
+    if settings.im_providers and settings.im_providers.strip():
+        providers = [p.strip().lower() for p in settings.im_providers.split(",") if p.strip()]
+    else:
+        providers = [(settings.im_provider or "mattermost").lower()]
+    logger.info("[lifespan] IM providers requested: %s", providers)
+
     try:
         from offboarding_flow.im.dispatcher import dispatch_message
 
-        provider = (settings.im_provider or "mattermost").lower()
-        if provider == "mattermost" and settings.mattermost_bot_token:
-            from offboarding_flow.workers.mattermost_listener import MattermostListener
+        for provider in providers:
+            try:
+                listener: _IMListenerProto | None = None
+                if provider == "mattermost" and settings.mattermost_bot_token:
+                    from offboarding_flow.workers.mattermost_listener import MattermostListener
 
-            im_listener = MattermostListener(settings)
-            app.state.mm_listener = im_listener
-            logger.info("[lifespan] selected IM listener: mattermost")
-        elif provider == "huly":
-            from offboarding_flow.workers.huly_listener import HulyListener
+                    listener = MattermostListener(settings)
+                    app.state.mm_listener = listener
+                elif provider == "huly":
+                    from offboarding_flow.workers.huly_listener import HulyListener
 
-            im_listener = HulyListener(settings)
-            app.state.huly_listener = im_listener
-            logger.info("[lifespan] selected IM listener: huly (webhook 模式)")
-        else:
-            logger.info(
-                "[lifespan] no IM listener — provider=%s（mattermost 需 bot_token，huly 走 webhook）",
-                provider,
-            )
+                    listener = HulyListener(settings)
+                    app.state.huly_listener = listener
+                else:
+                    logger.info(
+                        "[lifespan] skip provider=%s (mattermost 需 bot_token / huly 走 webhook)",
+                        provider,
+                    )
+                    continue
 
-        if im_listener is not None:
-            assert isinstance(im_listener, _IMListenerProto)  # runtime_checkable Protocol 校验
-            im_listener.register_command_listener(dispatch_message)
-            await im_listener.start()
-            logger.info(
-                "[lifespan] %s listener started (dispatch=im.dispatcher.dispatch_message)",
-                getattr(im_listener, "name", "unknown"),
-            )
+                assert isinstance(listener, _IMListenerProto)
+                listener.register_command_listener(dispatch_message)
+                await listener.start()
+                im_listeners.append(listener)
+                logger.info(
+                    "[lifespan] ✓ %s listener started (dispatch=im.dispatcher.dispatch_message)",
+                    getattr(listener, "name", provider),
+                )
+            except Exception as inner:
+                logger.warning(
+                    "[lifespan] IM listener[%s] start failed (will continue 其他 listener): %s",
+                    provider,
+                    inner,
+                )
     except Exception as e:
-        logger.warning("[lifespan] IM listener start failed (will continue): %s", e)
-        im_listener = None
+        logger.warning("[lifespan] IM listener loop fatal (continue without IM): %s", e)
 
-    # 兼容老代码 — app.state.mm_listener 别名（其它地方可能引用）
-    # im_listener 是 mattermost 时已在上面写入 app.state.mm_listener，本处不重复
+    app.state.im_listeners = im_listeners  # 暴露给运维 / healthcheck 用
 
     # Phase 6 — 起 TimeoutScanWorker（NOTI-05 + TIMEOUT-01，每 60s 扫超时节点）
     timeout_worker = None
@@ -140,12 +154,20 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 停 IM listener（mattermost 或 huly）
-    if im_listener is not None:
+    # 停所有 IM listener（mattermost / huly / ... 任意组合）
+    for listener in im_listeners:
         try:
-            await im_listener.stop()
+            await listener.stop()
+            logger.info(
+                "[lifespan] ✓ %s listener stopped",
+                getattr(listener, "name", "unknown"),
+            )
         except Exception as e:
-            logger.warning("[lifespan] im_listener stop error: %s", e)
+            logger.warning(
+                "[lifespan] %s listener stop error: %s",
+                getattr(listener, "name", "unknown"),
+                e,
+            )
 
     # Phase 6 — 优雅停止 timeout worker（先于 outbox，让最后一批 outbox 仍能 drain）
     if timeout_worker is not None and timeout_task is not None:
