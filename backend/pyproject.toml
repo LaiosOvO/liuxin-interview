@@ -38,6 +38,8 @@ dependencies = [
   "jinja2>=3.1,<4",
   # Phase 4 / Slice 4D: Seed 脚本（同步 Mattermost SDK）
   "mattermostautodriver>=2.0,<3",
+  # Phase 8 / Plan 07: MCP server（流程 MCP 化，MCP-01..06）— FastMCP 3.x decorator API
+  "fastmcp>=3.3.1,<4",
 ]
 
 [project.optional-dependencies]

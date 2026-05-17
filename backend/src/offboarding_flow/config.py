@@ -136,6 +136,16 @@ class Settings(BaseSettings):
     # 超时（sidecar 调 Huly transactor 可能慢，给 15s）
     huly_bridge_http_timeout: float = 15.0
 
+    # Phase 8 / Plan 07 — MCP server（流程 MCP 化，MCP-01..06）
+    # MCP_ALLOW_WRITE 默认 false — 防 LLM 误推进流程（PRD §15.3 AI 边界红线 + RESEARCH Pitfall #8）
+    # 启用需显式 env MCP_ALLOW_WRITE=true；write tools 在启动期判 env 真禁用（不是只在描述里写）
+    mcp_allow_write: bool = Field(default=False)
+    # HTTP 模式监听端口（仅 mount 到 FastAPI 时不直接占用，runner.py 直起 http server 时占用）
+    mcp_http_port: int = 7788
+    # 是否在 FastAPI 内 mount MCP HTTP /mcp/* 路径（默认 false 不影响现有 backend；
+    # 演示/远程 LLM 客户端用时切 true，避免起独立容器）
+    mcp_http_mounted: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
