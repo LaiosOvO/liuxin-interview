@@ -79,6 +79,11 @@ docker compose --profile huly build huly-bridge
 
 `@hcengineering/*` 包 v0.7.423 由 npm 公网拉取。
 
+> **已验证 npm 公网可用版本**（截至 2026-05-17）：
+> - ✅ `api-client / server-token / server-client / chunter / contact / core / platform` 全有 0.7.423
+> - ❌ `document` 仅有 0.7.0（npm publish 滞后）— Plan 05 需通过 docker tarball 兜底，
+>   或改用 chunter 的 Card 作为 handover doc 载体
+
 如 npm 公网拉不到（参考 RESEARCH §3.3.7 兜底路径）：
 1. 改用 `pnpm install` —— pnpm 对 workspace:* 协议有更好支持
 2. 从已部署的 huly-selfhost Docker image 提 tarball：
