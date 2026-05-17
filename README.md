@@ -369,11 +369,104 @@ E2E 浏览器自动化用 `browser-use/browser-harness` 直连本机 Chrome CDP�
 
 - `.env` 已 `.gitignore`，仅 `.env.example` 进 git（占位 `changeme_in_real_env`）
 - 凭证清单：`POSTGRES_PASSWORD` / `JWT_SECRET` (64 字符) / `SMTP_PASSWORD`（QQ 授权码 16 位）/
-  `GLM_API_KEY` / `MATTERMOST_BOT_TOKEN` / `OUTLINE_API_TOKEN`
+  `GLM_API_KEY` / `MATTERMOST_BOT_TOKEN` / `OUTLINE_API_TOKEN` /
+  `HULY_SERVER_SECRET` / `HULY_BRIDGE_TOKEN` / `HULY_ADMIN_TOKEN`（Phase 8B）
 - pre-commit `gitleaks` 钩子拦截硬编码 secret（已验证：当前所有 provider 通过 settings/env 读，无硬编码）
 
 ---
 
-## 9. License & Attribution
+## 9. Huly 集成部署（Phase 8B，可选）
+
+> 离职流程支持把 IM/Doc 通道切换到 Huly Platform。默认 `IM_PROVIDER=mattermost DOC_PROVIDER=outline`
+> 时本节可跳过。
+
+### 9.1 前置条件
+
+- `192.168.2.44` 已部署 Huly v0.7.423 14 容器（参考 `deploy/huly/HULY_IMAGES.md`）
+- Huly workspace `laios` 已通过 Huly UI 手动创建
+- 已有 Huly admin 账号（email/password）— 通常是首次安装时创建的 super admin
+
+### 9.2 步骤 1 — 配置 .env
+
+复制 `.env.example` 中的 HULY_* 段到 `.env`，填入真值：
+
+| 变量 | 用途 | 来源 |
+|---|---|---|
+| `HULY_VERSION=v0.7.423` | 业务版本（11 镜像共用） | 固定 |
+| `HULY_URL=http://192.168.2.44:8087` | Huly Front 入口 | 部署 IP |
+| `HULY_ACCOUNTS_URL=http://192.168.2.44:3007` | Accounts API | 部署 IP |
+| `HULY_WORKSPACE=laios` | 目标 workspace | UI 手建 |
+| `HULY_SERVER_SECRET=<openssl rand -hex 32>` | HMAC 密钥 | 必须与 huly-stack 同值 |
+| `HULY_BRIDGE_TOKEN=<openssl rand -hex 16>` | sidecar 通信 token | 新生成 |
+| `HULY_BRIDGE_URL=http://huly-bridge:7777` | sidecar URL | 默认 |
+| `HULY_ADMIN_EMAIL=admin@huly.local` | Huly admin 邮箱 | UI 创 |
+| `HULY_ADMIN_PASSWORD=<from UI>` | Huly admin 密码 | UI 创 |
+| `HULY_ADMIN_TOKEN=<openssl rand -hex 32>` | sidecar admin 二级 token | 新生成 |
+| `HULY_USER_PASSWORD=<演示统一密码>` | 13 seed 用户默认密码 | 自定义 |
+| `HULY_BOT_ACCOUNT_UUID=` | bot 真账号 UUID | seed 后填 |
+| `HULY_MINIO_USER/PASSWORD` | huly-stack MinIO 凭证 | UI 创 |
+
+### 9.3 步骤 2 — 启动 huly-bridge sidecar
+
+```bash
+docker compose --profile huly up -d huly-bridge
+# 等 30 秒 healthcheck 转绿
+curl http://localhost:7777/healthz  # 应返回 {ok: true, huly_connected: true}
+```
+
+### 9.4 步骤 3 — Seed 13 个用户到 Huly
+
+```bash
+# 先 dry-run 预览
+docker exec offboarding-backend uv run python /app/scripts/seed_huly_users.py --dry-run
+
+# 真 seed
+docker exec offboarding-backend uv run python /app/scripts/seed_huly_users.py
+
+# 期望输出末行：[seed_huly_users] === DONE: seeded=13, skipped=0, failed=0 (total=13) ===
+# 重跑同环境第二次：seeded=0, skipped=13, failed=0（幂等验证）
+```
+
+### 9.5 步骤 4 — 切换业务 backend 到 Huly
+
+修改 `.env`：
+
+```
+IM_PROVIDER=huly
+DOC_PROVIDER=huly
+```
+
+重启 backend：
+
+```bash
+docker compose restart backend
+# 日志应显示：[huly_listener] 启动（webhook 模式）
+```
+
+### 9.6 步骤 5 — 验证
+
+打开 Huly UI（http://192.168.2.44:8087），用 `it.charlie` 登录（密码 = `HULY_USER_PASSWORD`）
+→ 在与 `offboarding-bot` 的 DM 中输入「我要离职」
+→ bot 应回复「您的离职流程已启动…」
+→ 业务 DB `app.flow_instances` 表应有新行（`employee_id='it.charlie'`）
+
+### 9.7 回滚
+
+```
+IM_PROVIDER=mattermost
+DOC_PROVIDER=outline
+```
+
+重启 backend 即可。**13 个 Huly account 不会自动删除**（需手动在 Huly admin UI 删除）。
+
+### 9.8 安全建议
+
+- seed 完后清空 `HULY_ADMIN_*` 凭证 + `HULY_ADMIN_TOKEN`，让 sidecar admin 路由不挂载，纯业务安全
+- `HULY_USER_PASSWORD` 仅演示用；生产场景应为每个用户生成独立密码（修改 `scripts/seed_huly_users.py`）
+- `HULY_BRIDGE_TOKEN` + `HULY_ADMIN_TOKEN` 是双重保护，缺一道都不能调 admin 路由
+
+---
+
+## 10. License & Attribution
 
 演示项目，作者 `LaiosOvO`。代码由 Claude Code (Anthropic) 协助生成。

@@ -11,6 +11,62 @@
 
 ## [Unreleased]
 
+### Phase 8 Plan 06 (2026-05-17) — Huly seed 脚本 + sidecar admin API + 部署 runbook (HULY-08..09)
+
+#### Added — sidecar Admin API（HULY-08）
+- `backend/sidecars/huly-bridge/src/admin.ts` (320 行) — sidecar admin 路由
+  - `POST /api/admin/signup_join` — 单 user signUp + 加 workspace
+  - `getAdminClient()` 缓存 admin token（5 min TTL，避免每次都 login）
+  - 走 admin login → createInvite → anonymous signUpJoin 链路（避开 Pitfall #1 verifyAllowedServices Forbidden）
+  - 幂等：already exists → login fallback 拿 accountUuid → 200 skipped=true
+  - 测试用 `_setTestAccountClientFactory()` 注入 mock 不打真模块解析
+- `backend/sidecars/huly-bridge/src/middleware.ts` — 新增 `adminAuth(token)` 中间件
+  - X-Admin-Token 第二道保护（防 LLM 通过 BRIDGE_TOKEN 调 admin 路由污染 Huly 账号）
+  - 与 bridgeAuth 同 timing-attack 防御
+- `backend/sidecars/huly-bridge/src/index.ts` — mountAdminRoutes 装配
+- `backend/sidecars/huly-bridge/src/hcengineering-shims.d.ts` — 加 `@hcengineering/account-client` 类型 shim
+- `backend/sidecars/huly-bridge/package.json` — 显式加 `@hcengineering/account-client@0.7.423` 依赖
+
+#### Added — Seed 脚本（HULY-08）
+- `scripts/seed_huly_users.py` (260 行) — 批量同步业务 DB 13 用户到 Huly
+  - 读 `app.users` → 转 SeedTarget → 调 sidecar `/api/admin/signup_join`
+  - 中文 log + summary（seeded / skipped / failed）
+  - 5xx 立即停止；4xx 计入 failed 继续；网络错误算 failed
+  - `--dry-run` 不发请求仅预览
+  - 退出码：0 OK，1 failed≥1，2 配置错误，3 5xx 中断
+- `scripts/seed_huly_workspace.py` (80 行) — workspace 预探测（容忍手动 UI 创建）
+  - 通过 sidecar /healthz 检测 huly_connected 即视为 workspace 已存在
+  - 失败时友好提示用户手动 UI 创建
+
+#### Added — 配置补全（HULY-09）
+- `.env.example` 新增 4 个 HULY_* 变量（共 14 个）：
+  - `HULY_BRIDGE_URL` — Python backend → sidecar URL
+  - `HULY_BOT_ACCOUNT_UUID` — 真 bot 账号 UUID（seed 后填，提高死循环防护准确性）
+  - `HULY_ADMIN_EMAIL` / `HULY_ADMIN_PASSWORD` / `HULY_ADMIN_TOKEN` — seed 脚本专用凭证
+  - `HULY_USER_PASSWORD` — 13 seed 用户默认密码
+- `README.md` 新增 §9 Huly 集成部署 runbook（87 行）：
+  - §9.1 前置条件 / §9.2 配置 / §9.3 启动 sidecar / §9.4 seed 13 user
+  - §9.5 切换 IM_PROVIDER=huly 启用 / §9.6 验证 / §9.7 回滚 / §9.8 安全建议
+  - 12 处 Huly 关键词覆盖全部步骤
+
+#### Added — 测试
+- `backend/sidecars/huly-bridge/tests/admin.test.ts` (340 行 / 12 用例) — sidecar admin 路由全覆盖
+  - 双 token 鉴权 3 用例（缺 bridge / 缺 admin / admin 不匹配）
+  - 业务逻辑 7 用例（成功 / 已存在兜底 / 已存在但 login 失败 / createInvite 失败 / signUpJoin 失败 / 缺字段 / 凭证缺失）
+  - mountAdminRoutes 1 用例（ADMIN_TOKEN 空时不挂路由）
+  - 防 timing attack 1 用例
+- `backend/tests/integration/test_huly_seed.py` (310 行 / 6 用例) — seed 脚本集成测试
+  - 用 monkeypatch 替换 `_load_users_from_db` 避免依赖业务 DB（CI 友好）
+  - 用 httpx.MockTransport 拦截 sidecar HTTP（与 test_huly_im_provider 同模式）
+  - 13 全成功 / 13 全 skipped / 部分 failed / 5xx 中断 / dry-run / 配置错误 全覆盖
+
+#### Changed — 文档
+- `docs/reading-huly-platform-2026-05-17.md` 追加 §7-§11（Plan 06 实现要点）
+  - Pitfall #1 verifyAllowedServices 绕过方案
+  - signUpJoin 完整签名 + getAccountClient(token) factory
+  - 幂等策略 + 双 token 鉴权
+- `backend/sidecars/huly-bridge/tests/listener.test.ts` — 补 admin 字段适配新 BridgeConfig 类型
+
 ### Phase 8 Plan 04 (2026-05-17) — huly-bridge Node sidecar 骨架 (HULY-03..04)
 
 #### Added — Node + TypeScript + Express sidecar 完整骨架（HULY-03）
