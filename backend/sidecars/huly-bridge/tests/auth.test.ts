@@ -13,13 +13,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock @hcengineering/* 包（避免 vitest 真去 resolve 不存在的 node_modules）
+// 注意：auth.ts 用 `import xxx from '...'` default import，并 lazy lookup default + 顶级两种情况
+// 所以 mock 必须挂 default 字段（vitest 会自动把 module 包成 { default: ... }）
 vi.mock('@hcengineering/core', () => ({
+  default: {
+    systemAccountUuid: '00000000-0000-0000-0000-000000000001',
+  },
   systemAccountUuid: '00000000-0000-0000-0000-000000000001',
 }))
 
-vi.mock('@hcengineering/platform', () => ({
-  setMetadata: vi.fn(),
-}))
+vi.mock('@hcengineering/platform', () => {
+  const setMetadataMock = vi.fn()
+  return {
+    default: {
+      setMetadata: setMetadataMock,
+    },
+    setMetadata: setMetadataMock,
+  }
+})
 
 vi.mock('@hcengineering/server-client', () => ({
   default: {
@@ -48,6 +59,7 @@ vi.mock('@hcengineering/server-token', () => {
         Secret: Symbol('serverToken.Secret'),
         Service: Symbol('serverToken.Service'),
       },
+      generateToken: generateTokenMock,
     },
     generateToken: generateTokenMock,
   }
@@ -58,7 +70,10 @@ const { initAuth, serviceToken, _resetAuthForTests, _isAuthInitialized } = await
   '../src/auth.js'
 )
 const { loadConfig } = await import('../src/config.js')
-const { setMetadata } = await import('@hcengineering/platform')
+const platformModule = (await import('@hcengineering/platform')) as unknown as {
+  setMetadata: ReturnType<typeof vi.fn>
+}
+const setMetadata = platformModule.setMetadata
 const serverTokenModule = (await import('@hcengineering/server-token')) as unknown as {
   generateToken: ReturnType<typeof vi.fn>
 }

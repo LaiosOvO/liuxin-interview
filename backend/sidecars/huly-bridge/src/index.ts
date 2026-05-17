@@ -17,8 +17,28 @@
  * - 业务路由（IM / Doc）在本 plan 仅返回 501，Plan 05 实现
  */
 
-import { connect, type PlatformClient } from '@hcengineering/api-client'
+// Huly api-client 同样是 CJS — lazy import 避免启动期 ESM 解析问题
+import apiClientModule from '@hcengineering/api-client'
 import express, { type Express, type Request, type Response } from 'express'
+
+import type { PlatformClient } from '@hcengineering/api-client'
+
+/**
+ * 解出 connect 函数（CJS 默认 export 或顶级）
+ */
+function getConnect(): (url: string, options: { token: string; workspace: string }) => Promise<PlatformClient> {
+  const fn =
+    (apiClientModule as { connect?: (...args: unknown[]) => Promise<PlatformClient> }).connect ??
+    (apiClientModule as { default?: { connect?: (...args: unknown[]) => Promise<PlatformClient> } })
+      .default?.connect
+  if (typeof fn !== 'function') {
+    throw new Error('huly-bridge: @hcengineering/api-client 未导出 connect — 检查 SDK 版本')
+  }
+  return fn as (
+    url: string,
+    options: { token: string; workspace: string },
+  ) => Promise<PlatformClient>
+}
 
 import { _isAuthInitialized, initAuth, serviceToken } from './auth.js'
 import { loadConfig, summarizeConfig } from './config.js'
@@ -165,6 +185,7 @@ export async function connectHulyInBackground(
     }
     const token = serviceToken()
 
+    const connect = getConnect()
     const client = await connect(config.hulyUrl, {
       token,
       workspace: config.hulyWorkspace,

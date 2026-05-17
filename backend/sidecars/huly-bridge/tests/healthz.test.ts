@@ -14,13 +14,21 @@
 import { describe, expect, it, vi } from 'vitest'
 
 // Mock @hcengineering/* 包（与 auth.test.ts 一致）— 防 vitest 真去 resolve
+// 关键：default + 顶级都挂，兼容 source code lazy lookup 两种路径
 vi.mock('@hcengineering/core', () => ({
+  default: {
+    systemAccountUuid: '00000000-0000-0000-0000-000000000001',
+  },
   systemAccountUuid: '00000000-0000-0000-0000-000000000001',
 }))
 
-vi.mock('@hcengineering/platform', () => ({
-  setMetadata: vi.fn(),
-}))
+vi.mock('@hcengineering/platform', () => {
+  const setMetadataMock = vi.fn()
+  return {
+    default: { setMetadata: setMetadataMock },
+    setMetadata: setMetadataMock,
+  }
+})
 
 vi.mock('@hcengineering/server-client', () => ({
   default: {
@@ -31,19 +39,27 @@ vi.mock('@hcengineering/server-client', () => ({
   },
 }))
 
-vi.mock('@hcengineering/server-token', () => ({
-  default: {
-    metadata: {
-      Secret: Symbol('serverToken.Secret'),
-      Service: Symbol('serverToken.Service'),
+vi.mock('@hcengineering/server-token', () => {
+  const generateTokenMock = vi.fn(() => 'mock-jwt-token')
+  return {
+    default: {
+      metadata: {
+        Secret: Symbol('serverToken.Secret'),
+        Service: Symbol('serverToken.Service'),
+      },
+      generateToken: generateTokenMock,
     },
-  },
-  generateToken: vi.fn(() => 'mock-jwt-token'),
-}))
+    generateToken: generateTokenMock,
+  }
+})
 
-vi.mock('@hcengineering/api-client', () => ({
-  connect: vi.fn(),
-}))
+vi.mock('@hcengineering/api-client', () => {
+  const connectMock = vi.fn()
+  return {
+    default: { connect: connectMock },
+    connect: connectMock,
+  }
+})
 
 const { createApp, createInitialHealthState } = await import('../src/index.js')
 const { loadConfig } = await import('../src/config.js')
