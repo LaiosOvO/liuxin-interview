@@ -27,6 +27,17 @@ const PUBLIC_PATHS = new Set<string>(['/healthz', '/'])
 export const BRIDGE_TOKEN_HEADER = 'x-bridge-token'
 
 /**
+ * X-Admin-Token header 名（Plan 06 admin API 用 — 第二道保护层）。
+ *
+ * 设计动机：BRIDGE_TOKEN 是 Python backend ↔ sidecar 的常用通信 token，
+ * 普通业务路由都用它。但 admin API（signUp 创账号 / 加 workspace）一旦
+ * 被业务侧 LLM 误调，会污染 Huly account 数据。
+ *
+ * 用 ADMIN_TOKEN 做第二道保护，确保只有 seed 脚本（手动注入）才能调 admin 路由。
+ */
+export const ADMIN_TOKEN_HEADER = 'x-admin-token'
+
+/**
  * 创建 BRIDGE_TOKEN 鉴权中间件。
  *
  * 用法：app.use(bridgeAuth(config.bridgeToken))
@@ -77,6 +88,56 @@ export function bridgeAuth(expectedToken: string) {
     }
 
     // 校验通过
+    next()
+  }
+}
+
+/**
+ * 创建 Admin Token 鉴权中间件（Plan 06）。
+ *
+ * 用法（必须挂在 bridgeAuth 之后）：
+ *   app.use('/api/admin', bridgeAuth(token), adminAuth(adminToken), adminRouter)
+ *
+ * 行为：
+ * - 缺 X-Admin-Token → 403 (ADMIN_TOKEN_MISSING)
+ * - X-Admin-Token 不匹配 → 403 (ADMIN_TOKEN_INVALID)
+ * - 校验通过 → 放行
+ *
+ * 注意：
+ * - expected 为空字符串时 throw（fail fast，防误配开放接口）
+ * - 与 bridgeAuth 同一 timing-attack 防御（长度先判 + 字面比较）
+ *
+ * @param expectedToken 期望的 admin token（来自 ADMIN_TOKEN env）
+ * @returns Express 中间件函数
+ */
+export function adminAuth(expectedToken: string) {
+  if (!expectedToken || expectedToken.trim() === '') {
+    throw new Error('huly-bridge: adminAuth(expectedToken) 不能为空 — 检查 ADMIN_TOKEN env')
+  }
+
+  return function adminAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
+    const presented = req.header(ADMIN_TOKEN_HEADER)
+
+    if (presented === undefined || presented === null) {
+      const body: ErrorResponse = {
+        ok: false,
+        error: `缺少 ${ADMIN_TOKEN_HEADER} header`,
+        code: 'ADMIN_TOKEN_MISSING',
+      }
+      res.status(403).json(body)
+      return
+    }
+
+    if (presented.length !== expectedToken.length || presented !== expectedToken) {
+      const body: ErrorResponse = {
+        ok: false,
+        error: `${ADMIN_TOKEN_HEADER} 不匹配`,
+        code: 'ADMIN_TOKEN_INVALID',
+      }
+      res.status(403).json(body)
+      return
+    }
+
     next()
   }
 }

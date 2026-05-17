@@ -145,3 +145,50 @@ declare module '@hcengineering/document' {
   }
   export default document
 }
+
+// account-client 是 server-client 间接依赖（不显式 in package.json，
+// 但 node_modules 已 hoist 安装）；Plan 06 admin API 用 getClient() 拿真人 admin token。
+// 仅声明用到的方法签名，其它字段任意。
+declare module '@hcengineering/account-client' {
+  export interface LoginInfo {
+    readonly account: string
+    readonly token: string
+    readonly name?: string
+  }
+
+  export interface WorkspaceLoginInfo extends LoginInfo {
+    readonly workspace: string
+    readonly workspaceUrl: string
+    readonly workspaceDataId?: string
+    readonly endpoint: string
+  }
+
+  export interface AccountClient {
+    login(email: string, password: string): Promise<LoginInfo>
+    signUp(email: string, password: string, first: string, last: string): Promise<LoginInfo>
+    signUpJoin(
+      email: string,
+      password: string,
+      first: string,
+      last: string,
+      inviteId: string,
+      workspaceUrl: string,
+    ): Promise<WorkspaceLoginInfo>
+    selectWorkspace(workspaceUrl: string, kind?: string): Promise<WorkspaceLoginInfo>
+    createInvite(exp: number, emailMask: string, limit: number, role: string): Promise<string>
+    createWorkspace(name: string, region?: string): Promise<WorkspaceLoginInfo>
+    getLoginInfoByToken?: () => Promise<unknown>
+  }
+
+  export function getClient(
+    accountsUrl?: string,
+    token?: string,
+    retryTimeoutMs?: number,
+  ): AccountClient
+
+  const accountClient: {
+    getClient: typeof getClient
+    [key: string]: unknown
+  }
+  export default accountClient
+}

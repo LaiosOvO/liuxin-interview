@@ -71,6 +71,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BridgeConfig {
   const logLevel = logLevelRaw as LogLevel
 
   // 步骤 4：组装 immutable config（Object.freeze 防意外 mutation）
+  // Plan 06 admin 字段是可选 — 仅当 seed 脚本调 admin API 时才必填
+  // sidecar 启动期不强制（让纯业务路由场景不需配 admin 凭证）
   const config: BridgeConfig = Object.freeze({
     port,
     bridgeToken: env.BRIDGE_TOKEN!,
@@ -81,6 +83,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BridgeConfig {
     backendUrl: env.BACKEND_URL ?? DEFAULTS.BACKEND_URL,
     logLevel,
     serviceName: env.SERVICE_NAME ?? DEFAULTS.SERVICE_NAME,
+    adminToken: env.ADMIN_TOKEN ?? '',
+    adminEmail: env.HULY_ADMIN_EMAIL ?? '',
+    adminPassword: env.HULY_ADMIN_PASSWORD ?? '',
   })
 
   return config
@@ -102,5 +107,8 @@ export function summarizeConfig(config: BridgeConfig): Record<string, unknown> {
     serviceName: config.serviceName,
     bridgeToken: '***',
     serverSecret: '***',
+    adminToken: config.adminToken ? '***' : '(not set)',
+    adminEmail: config.adminEmail || '(not set)',
+    adminPassword: config.adminPassword ? '***' : '(not set)',
   }
 }

@@ -30,6 +30,12 @@ export interface BridgeConfig {
   readonly logLevel: LogLevel
   /** 服务名（用于 service token extra.service） */
   readonly serviceName: string
+  /** Plan 06: admin API 鉴权 token（第二道保护，仅 seed 脚本用） */
+  readonly adminToken: string
+  /** Plan 06: Huly admin 邮箱（seed 脚本调 login 拿真人 admin token） */
+  readonly adminEmail: string
+  /** Plan 06: Huly admin 密码（seed 脚本调 login） */
+  readonly adminPassword: string
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -169,6 +175,40 @@ export interface ListInSpaceResult {
     readonly title: string
     readonly url: string
   }>
+}
+
+// ============================================================================
+// Plan 06 — Admin 路由请求 / 响应 schema
+// ============================================================================
+
+/**
+ * POST /api/admin/signup_join 请求体。
+ *
+ * Plan 06 seed_huly_users.py 调用，把业务 DB user 同步到 Huly account + workspace。
+ */
+export interface SignUpJoinRequest {
+  /** 业务侧 username（"hr.alice" / "zhang.san"），仅用于 log / 错误信息 */
+  readonly username: string
+  /** Huly 账号 email（约定为 `{username}@demo.local`） */
+  readonly email: string
+  /** Huly 账号密码（仅 seed 用；演示场景统一用 HULY_DEFAULT_PASSWORD） */
+  readonly password: string
+  /** Huly 账号 first name（用于 UI 显示） */
+  readonly first_name: string
+  /** Huly 账号 last name */
+  readonly last_name: string
+  /** Workspace role，缺省 'USER' */
+  readonly role?: string
+}
+
+/**
+ * POST /api/admin/signup_join 响应 data 字段。
+ */
+export interface SignUpJoinResult {
+  /** 新建 / 已存在的 account UUID */
+  readonly account_uuid: string
+  /** true = 账号已存在，本次未创建；false = 本次新建 */
+  readonly skipped: boolean
 }
 
 /**

@@ -84,6 +84,10 @@ const baseConfig = Object.freeze({
   backendUrl: 'http://flow-api:8000',
   logLevel: 'info' as const,
   serviceName: 'offboarding-bot',
+  // Plan 06 admin 字段（listener 单测不会用 admin API，但 BridgeConfig 类型要求齐全）
+  adminToken: '',
+  adminEmail: '',
+  adminPassword: '',
 })
 
 describe('mapChannelType', () => {

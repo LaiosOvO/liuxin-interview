@@ -138,4 +138,66 @@ setInterval(async () => {
 
 ---
 
-*为 Phase 8 Plan 05 编写，重点提取 sidecar 业务路由 + 反向 chat 订阅模式。*
+## 追加 — Plan 06 / HULY-08（seed 路径 admin token + signUpJoin）
+
+> 日期: 2026-05-17（晚段追加）
+> 用途: Phase 8 Plan 06 — `scripts/seed_huly_users.py` + `sidecar/src/admin.ts`
+
+### 7. 避开 createInviteLink autoJoin Forbidden（Pitfall #1 — verifyAllowedServices）
+
+文件源码定位（已查）：
+- `~/ai/ref/agent/platform/server/account/src/operations.ts`（createInviteLink 内 verifyAllowedServices 仅放行 `service='schedule'`）
+
+**后果**：service token（systemAccountUuid + service='offboarding-bot'）调 createInviteLink(autoJoin=true) 返回 Forbidden。
+
+**绕过方案**（Plan 06 实现）：
+1. 不用 createInviteLink；改用 admin token（真人 login 拿）调 `createInvite(exp, emailMask, limit, role)` — 普通 invite 不受 verifyAllowedServices 拦截
+2. 用 anonymous client 调 `signUpJoin(email, password, first, last, inviteId, workspaceUrl)` — 公开 endpoint，一步完成「注册账号 + 加 workspace」
+
+### 8. signUpJoin 完整签名
+
+文件：`backend/sidecars/huly-bridge/node_modules/@hcengineering/account-client/src/client.ts:566-580`
+
+```typescript
+async signUpJoin (
+  email: string,
+  password: string,
+  first: string,
+  last: string,
+  inviteId: string,
+  workspaceUrl: string
+): Promise<WorkspaceLoginInfo>
+```
+
+返回 `{account, token, workspace, workspaceUrl, endpoint}` — `account` 字段就是 AccountUuid（与 socialKey resolver 拿到的同源）。
+
+### 9. getAccountClient(accountsUrl, token) factory
+
+文件：`backend/sidecars/huly-bridge/node_modules/@hcengineering/account-client/src/client.ts:268-275`
+
+```typescript
+export function getClient(accountsUrl?: string, token?: string, retryTimeoutMs?: number): AccountClient
+```
+
+- `token === undefined` → 匿名 client（用于 signUp / signUpJoin / 公开 endpoint）
+- `token === adminToken` → 管理员 client（用于 createInvite / createWorkspace）
+
+### 10. 幂等策略
+
+Plan 06 `handleSignUpJoin` 兜底逻辑：
+1. signUpJoin 失败且 error message 含 "already exists" / "duplicate" → 走 login 拿 accountUuid → 返回 `{skipped: true}`
+2. login 也失败 → 返回 409 ACCOUNT_EXISTS_PASSWORD_MISMATCH（密码不一致需人工介入）
+3. signUpJoin 失败非已存在 → 400 SIGNUP_JOIN_FAILED 透传错误
+
+这样脚本重跑 100% 幂等。
+
+### 11. 双 token 鉴权（CLAUDE.md §3.5 凭证安全）
+
+- BRIDGE_TOKEN：Python backend ↔ sidecar 常规通信（IM / Doc / listener webhook 都用）
+- ADMIN_TOKEN：admin 路由的「第二道」保护（仅 seed 脚本注入），防 LLM 通过 BRIDGE_TOKEN 调 admin 路由污染 Huly 账号数据
+
+实现：`sidecar/src/middleware.ts:adminAuth(expectedToken)` 中间件叠在 bridgeAuth 之后。
+
+---
+
+*为 Phase 8 Plan 05 编写；Plan 06 在 §7-§11 追加 admin/signUpJoin 实现要点。*

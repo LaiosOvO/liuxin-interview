@@ -42,6 +42,7 @@ function getConnect(): (url: string, options: { token: string; workspace: string
 
 import coreModule from '@hcengineering/core'
 
+import { mountAdminRoutes } from './admin.js'
 import { _isAuthInitialized, initAuth, serviceToken } from './auth.js'
 import { loadConfig, summarizeConfig } from './config.js'
 import { mountDocRoutes } from './doc.js'
@@ -194,6 +195,11 @@ export function createApp(config: BridgeConfig, healthState: HealthState): Expre
   app.post('/api/im/send-dm', notImplemented('send-dm（旧路径，请改用 /api/im/send_dm）'))
   app.post('/api/im/send-channel', notImplemented('send-channel（旧路径，请改用 /api/im/post_channel）'))
   app.get('/api/im/list-channels', notImplemented('list-channels（待 Plan 06）'))
+
+  // ==========================================================================
+  // Plan 06 — Admin API（seed 脚本专用，双 token 保护，依赖 HULY_ADMIN_*）
+  // ==========================================================================
+  mountAdminRoutes(app, config)
 
   // 404 + error handler 必须放最后
   app.use(notFoundHandler)
