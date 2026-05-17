@@ -61,6 +61,46 @@ vi.mock('@hcengineering/api-client', () => {
   }
 })
 
+// Plan 05 — index.ts 现在 import doc.js 间接依赖 @hcengineering/document（npm 公网无 0.7.423）
+// 必须 mock 才能让 vitest 解析（运行时同样靠 lookup helper fallback）
+vi.mock('@hcengineering/document', () => ({
+  default: {
+    class: {
+      Teamspace: Symbol('document.class.Teamspace'),
+      Document: Symbol('document.class.Document'),
+    },
+  },
+  class: {
+    Teamspace: Symbol('document.class.Teamspace'),
+    Document: Symbol('document.class.Document'),
+  },
+}))
+
+// im.ts / listener.ts 依赖
+vi.mock('@hcengineering/chunter', () => ({
+  default: {
+    class: {
+      DirectMessage: Symbol('chunter.class.DirectMessage'),
+      Channel: Symbol('chunter.class.Channel'),
+      ChatMessage: Symbol('chunter.class.ChatMessage'),
+    },
+  },
+  class: {
+    DirectMessage: Symbol('chunter.class.DirectMessage'),
+    Channel: Symbol('chunter.class.Channel'),
+    ChatMessage: Symbol('chunter.class.ChatMessage'),
+  },
+}))
+
+vi.mock('@hcengineering/contact', () => ({
+  default: {
+    class: { SocialIdentity: Symbol('contact.class.SocialIdentity') },
+    mixin: { Employee: Symbol('contact.mixin.Employee') },
+  },
+  class: { SocialIdentity: Symbol('contact.class.SocialIdentity') },
+  mixin: { Employee: Symbol('contact.mixin.Employee') },
+}))
+
 const { createApp, createInitialHealthState } = await import('../src/index.js')
 const { loadConfig } = await import('../src/config.js')
 const { BRIDGE_TOKEN_HEADER } = await import('../src/middleware.js')
@@ -146,16 +186,38 @@ describe('GET / (banner)', () => {
   })
 })
 
-describe('业务路由 stub（Plan 05 实现）', () => {
+describe('业务路由 — Plan 05 真实现 / Plan 04 旧 stub 保留', () => {
+  // Plan 05 — Huly 未就绪时业务路由返回 503 HULY_NOT_READY
+  // （healthState.client === null 表示 connectHulyInBackground 还没成功）
+  it.each([
+    ['POST', '/api/im/send_dm'],
+    ['POST', '/api/im/post_channel'],
+    ['POST', '/api/im/ensure_member'],
+    ['POST', '/api/doc/create_space'],
+    ['POST', '/api/doc/create_doc'],
+    ['GET', '/api/doc/list_in_space'],
+    ['DELETE', '/api/doc/document'],
+    ['DELETE', '/api/doc/space'],
+  ])('%s %s 带正确 token + Huly 未就绪 → 503 HULY_NOT_READY', async (method, path) => {
+    const app = createApp(fakeConfig(), createInitialHealthState())
+    const lower = method.toLowerCase() as 'get' | 'post' | 'delete'
+    const res = await supertest(app)
+      [lower](path)
+      .set(BRIDGE_TOKEN_HEADER, 'test-bridge-token')
+
+    expect(res.status).toBe(503)
+    expect(res.body).toMatchObject({
+      ok: false,
+      code: 'HULY_NOT_READY',
+    })
+  })
+
+  // Plan 04 旧 stub 路径（短横线版）保留，返回 501
   it.each([
     ['POST', '/api/im/send-dm'],
     ['POST', '/api/im/send-channel'],
     ['GET', '/api/im/list-channels'],
-    ['POST', '/api/doc/create-folder'],
-    ['POST', '/api/doc/create-doc'],
-    ['POST', '/api/doc/update-doc'],
-    ['POST', '/api/doc/link-collaborator'],
-  ])('%s %s 带正确 token → 501 NOT_IMPLEMENTED', async (method, path) => {
+  ])('%s %s（Plan 04 旧 stub 路径）→ 501 NOT_IMPLEMENTED', async (method, path) => {
     const app = createApp(fakeConfig(), createInitialHealthState())
     const lower = method.toLowerCase() as 'get' | 'post'
     const res = await supertest(app)
@@ -171,7 +233,7 @@ describe('业务路由 stub（Plan 05 实现）', () => {
 
   it('/api/* 缺 token → 401 BRIDGE_TOKEN_MISSING', async () => {
     const app = createApp(fakeConfig(), createInitialHealthState())
-    const res = await supertest(app).post('/api/im/send-dm')
+    const res = await supertest(app).post('/api/im/send_dm')
     expect(res.status).toBe(401)
     expect(res.body).toMatchObject({
       ok: false,
@@ -182,7 +244,7 @@ describe('业务路由 stub（Plan 05 实现）', () => {
   it('/api/* token 不匹配 → 401 BRIDGE_TOKEN_INVALID', async () => {
     const app = createApp(fakeConfig(), createInitialHealthState())
     const res = await supertest(app)
-      .post('/api/im/send-dm')
+      .post('/api/im/send_dm')
       .set(BRIDGE_TOKEN_HEADER, 'wrong-token')
     expect(res.status).toBe(401)
     expect(res.body).toMatchObject({

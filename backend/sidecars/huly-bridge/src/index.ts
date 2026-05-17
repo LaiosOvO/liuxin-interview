@@ -40,8 +40,13 @@ function getConnect(): (url: string, options: { token: string; workspace: string
   ) => Promise<PlatformClient>
 }
 
+import coreModule from '@hcengineering/core'
+
 import { _isAuthInitialized, initAuth, serviceToken } from './auth.js'
 import { loadConfig, summarizeConfig } from './config.js'
+import { mountDocRoutes } from './doc.js'
+import { mountImRoutes } from './im.js'
+import { startChatListener } from './listener.js'
 import {
   bridgeAuth,
   errorHandler,
@@ -55,6 +60,22 @@ import type {
   HealthzResponse,
   SuccessResponse,
 } from './types.js'
+
+/**
+ * 从 @hcengineering/core 解出 systemAccountUuid（兼 CJS interop）。
+ *
+ * Plan 05 用 systemAccountUuid 作为 bot 的 AccountUuid — 与 Plan 04 serviceToken
+ * 内的 systemAccountUuid 一致。Plan 06 seed_huly_users 后可换成真实 bot 账号。
+ */
+function getBotAccountUuid(): string {
+  const uuid =
+    (coreModule as { systemAccountUuid?: string }).systemAccountUuid ??
+    (coreModule as { default?: { systemAccountUuid?: string } }).default?.systemAccountUuid
+  if (typeof uuid !== 'string' || uuid === '') {
+    throw new Error('huly-bridge: @hcengineering/core 未导出 systemAccountUuid')
+  }
+  return uuid
+}
 
 /**
  * 当前 sidecar 版本（与 package.json version 对齐，硬编码避 import .json 复杂度）。
@@ -141,18 +162,38 @@ export function createApp(config: BridgeConfig, healthState: HealthState): Expre
   })
 
   // ==========================================================================
-  // 业务路由 stub —— Plan 05 替换为真实实现
+  // Plan 05 — IM / Doc 业务路由（替换 Plan 04 的 stub）
   // ==========================================================================
-  // IM 路由
-  app.post('/api/im/send-dm', notImplemented('send-dm'))
-  app.post('/api/im/send-channel', notImplemented('send-channel'))
-  app.get('/api/im/list-channels', notImplemented('list-channels'))
+  // 仅在 Huly client 就绪后挂业务路由 — 否则路由依赖未连接的 client 会立即报错
+  if (healthState.client !== null && healthState.hulyConnected) {
+    const botAccount = getBotAccountUuid()
+    mountImRoutes(app, healthState.client, botAccount)
+    mountDocRoutes(app, healthState.client, botAccount, config.hulyUrl, config.hulyWorkspace)
+  } else {
+    // Huly 未连接前，业务路由仍占位（返回 503 Service Unavailable）
+    const huly503 = (operation: string) =>
+      function huly503Handler(_req: Request, res: Response): void {
+        const body: ErrorResponse = {
+          ok: false,
+          error: `${operation}: Huly client 尚未就绪（healthz 检查 huly_connected 状态）`,
+          code: 'HULY_NOT_READY',
+        }
+        res.status(503).json(body)
+      }
+    app.post('/api/im/send_dm', huly503('send_dm'))
+    app.post('/api/im/post_channel', huly503('post_channel'))
+    app.post('/api/im/ensure_member', huly503('ensure_member'))
+    app.post('/api/doc/create_space', huly503('create_space'))
+    app.post('/api/doc/create_doc', huly503('create_doc'))
+    app.get('/api/doc/list_in_space', huly503('list_in_space'))
+    app.delete('/api/doc/document', huly503('delete_document'))
+    app.delete('/api/doc/space', huly503('delete_space'))
+  }
 
-  // Doc 路由
-  app.post('/api/doc/create-folder', notImplemented('create-folder'))
-  app.post('/api/doc/create-doc', notImplemented('create-doc'))
-  app.post('/api/doc/update-doc', notImplemented('update-doc'))
-  app.post('/api/doc/link-collaborator', notImplemented('link-collaborator'))
+  // 兼容 Plan 04 旧 stub 路径（短横线版）— 保留 501 返回（防 backend 老代码崩）
+  app.post('/api/im/send-dm', notImplemented('send-dm（旧路径，请改用 /api/im/send_dm）'))
+  app.post('/api/im/send-channel', notImplemented('send-channel（旧路径，请改用 /api/im/post_channel）'))
+  app.get('/api/im/list-channels', notImplemented('list-channels（待 Plan 06）'))
 
   // 404 + error handler 必须放最后
   app.use(notFoundHandler)
@@ -229,12 +270,27 @@ export async function main(): Promise<void> {
     console.log(`[huly-bridge] HTTP server listening on :${config.port}`)
   })
 
-  // 5. 后台连 Huly（非阻塞）
-  void connectHulyInBackground(config, healthState)
+  // 5. 后台连 Huly（非阻塞）+ 连成功后启动 chat listener
+  let listenerHandle: NodeJS.Timeout | null = null
+  void connectHulyInBackground(config, healthState).then(async () => {
+    if (healthState.hulyConnected && healthState.client !== null) {
+      try {
+        const botAccount = getBotAccountUuid()
+        listenerHandle = await startChatListener(healthState.client, config, botAccount)
+        console.log('[huly-bridge] chat 反向 listener 已启动')
+      } catch (err) {
+        console.warn('[huly-bridge] chat listener 启动失败（不影响业务路由）:', err)
+      }
+    }
+  })
 
   // 6. 优雅关停
   const shutdown = (signal: string): void => {
     console.log(`[huly-bridge] 收到 ${signal} —— 关停 server...`)
+    if (listenerHandle !== null) {
+      clearInterval(listenerHandle)
+      console.log('[huly-bridge] chat listener 已停止')
+    }
     server.close((err?: Error) => {
       if (err) {
         console.error('[huly-bridge] server.close 出错:', err)
