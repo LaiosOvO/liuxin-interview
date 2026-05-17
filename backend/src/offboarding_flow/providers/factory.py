@@ -33,6 +33,11 @@ def get_doc_provider() -> DocProvider:
         from .dingtalk_provider import DingTalkDocProvider
 
         return DingTalkDocProvider()
+    if name == "huly":
+        # Phase 08-05 / HULY-06 — Huly DocProvider via huly-bridge sidecar
+        from .huly_doc_provider import HulyDocProvider
+
+        return HulyDocProvider(settings)
     raise ValueError(f"未知 DOC_PROVIDER: {name}")
 
 
@@ -57,6 +62,11 @@ def get_im_provider() -> IMProvider:
         from .dingtalk_provider import DingTalkIMProvider
 
         return DingTalkIMProvider()
+    if name == "huly":
+        # Phase 08-05 / HULY-06 — Huly IMProvider via huly-bridge sidecar
+        from .huly_im_provider import HulyIMProvider
+
+        return HulyIMProvider(settings)
     raise ValueError(f"未知 IM_PROVIDER: {name}")
 
 

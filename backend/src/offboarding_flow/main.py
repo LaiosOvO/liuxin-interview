@@ -72,23 +72,49 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] outbox worker start failed (will continue): %s", e)
 
-    # IM listener — 实现 IMListener Protocol；ABS-04 注册统一 dispatch（im.dispatcher.dispatch_message）
+    # IM listener — 按 IM_PROVIDER 动态选择实现（ABS-01 / ABS-04 / HULY-07）
     # 让 bot 在线 + 支持 DM（用户要求）
-    mm_listener = None
+    # 用 IMListener 抽象类型注解，让 MattermostListener / HulyListener 双绑兼容
+    from offboarding_flow.im.protocol import IMListener as _IMListenerProto
+
+    im_listener: _IMListenerProto | None = None
+    app.state.huly_listener = None  # Plan 05 — internal_huly 路由会读这个属性
     try:
         from offboarding_flow.im.dispatcher import dispatch_message
-        from offboarding_flow.workers.mattermost_listener import MattermostListener
 
-        mm_listener = MattermostListener(settings)
-        # ABS-04：listener 收到合法消息时调统一 dispatch（与未来 Huly listener 共用）
-        mm_listener.register_command_listener(dispatch_message)
-        await mm_listener.start()
-        app.state.mm_listener = mm_listener
-        logger.info(
-            "[lifespan] mattermost listener started (bot online via WebSocket, dispatch=im.dispatcher.dispatch_message)"
-        )
+        provider = (settings.im_provider or "mattermost").lower()
+        if provider == "mattermost" and settings.mattermost_bot_token:
+            from offboarding_flow.workers.mattermost_listener import MattermostListener
+
+            im_listener = MattermostListener(settings)
+            app.state.mm_listener = im_listener
+            logger.info("[lifespan] selected IM listener: mattermost")
+        elif provider == "huly":
+            from offboarding_flow.workers.huly_listener import HulyListener
+
+            im_listener = HulyListener(settings)
+            app.state.huly_listener = im_listener
+            logger.info("[lifespan] selected IM listener: huly (webhook 模式)")
+        else:
+            logger.info(
+                "[lifespan] no IM listener — provider=%s（mattermost 需 bot_token，huly 走 webhook）",
+                provider,
+            )
+
+        if im_listener is not None:
+            assert isinstance(im_listener, _IMListenerProto)  # runtime_checkable Protocol 校验
+            im_listener.register_command_listener(dispatch_message)
+            await im_listener.start()
+            logger.info(
+                "[lifespan] %s listener started (dispatch=im.dispatcher.dispatch_message)",
+                getattr(im_listener, "name", "unknown"),
+            )
     except Exception as e:
-        logger.warning("[lifespan] mattermost listener start failed (will continue): %s", e)
+        logger.warning("[lifespan] IM listener start failed (will continue): %s", e)
+        im_listener = None
+
+    # 兼容老代码 — app.state.mm_listener 别名（其它地方可能引用）
+    # im_listener 是 mattermost 时已在上面写入 app.state.mm_listener，本处不重复
 
     # Phase 6 — 起 TimeoutScanWorker（NOTI-05 + TIMEOUT-01，每 60s 扫超时节点）
     timeout_worker = None
@@ -114,12 +140,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 停 Mattermost listener
-    if mm_listener is not None:
+    # 停 IM listener（mattermost 或 huly）
+    if im_listener is not None:
         try:
-            await mm_listener.stop()
+            await im_listener.stop()
         except Exception as e:
-            logger.warning("[lifespan] mm_listener stop error: %s", e)
+            logger.warning("[lifespan] im_listener stop error: %s", e)
 
     # Phase 6 — 优雅停止 timeout worker（先于 outbox，让最后一批 outbox 仍能 drain）
     if timeout_worker is not None and timeout_task is not None:
@@ -207,6 +233,15 @@ def create_app() -> FastAPI:
         logger.info("[create_app] mounted mattermost_webhook_router")
     except ImportError as e:
         logger.info("[create_app] mattermost_webhook router not yet implemented: %s", e)
+
+    # Phase 8 / HULY-07 — sidecar 反向 webhook 入口（BRIDGE_TOKEN 鉴权）
+    try:
+        from offboarding_flow.api.internal_huly import router as internal_huly_router
+
+        app.include_router(internal_huly_router)
+        logger.info("[create_app] mounted internal_huly_router (Plan 08-05)")
+    except ImportError as e:
+        logger.info("[create_app] internal_huly router not yet implemented: %s", e)
 
     return app
 

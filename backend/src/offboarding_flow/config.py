@@ -126,6 +126,16 @@ class Settings(BaseSettings):
     dingtalk_app_key: str = ""
     dingtalk_app_secret: str = ""
 
+    # Huly Provider（Plan 08-05 — IM_PROVIDER=huly 或 DOC_PROVIDER=huly 时用）
+    # huly-bridge sidecar 通过 docker network 暴露 7777 端口；BRIDGE_TOKEN 与 sidecar 共享
+    huly_bridge_url: str = "http://huly-bridge:7777"
+    huly_bridge_token: str = ""
+    huly_workspace: str = "laios"
+    # bot AccountUuid — Plan 04 起 systemAccountUuid；Plan 06 seed 后可换成真实 bot 账号 UUID
+    huly_bot_account_uuid: str = ""
+    # 超时（sidecar 调 Huly transactor 可能慢，给 15s）
+    huly_bridge_http_timeout: float = 15.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
