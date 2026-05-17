@@ -129,15 +129,19 @@ class Settings(BaseSettings):
     dingtalk_app_key: str = ""
     dingtalk_app_secret: str = ""
 
-    # Huly Provider（Plan 08-05 — IM_PROVIDER=huly 或 DOC_PROVIDER=huly 时用）
-    # huly-bridge sidecar 通过 docker network 暴露 7777 端口；BRIDGE_TOKEN 与 sidecar 共享
-    huly_bridge_url: str = "http://huly-bridge:7777"
-    huly_bridge_token: str = ""
-    huly_workspace: str = "laios"
-    # bot AccountUuid — Plan 04 起 systemAccountUuid；Plan 06 seed 后可换成真实 bot 账号 UUID
-    huly_bot_account_uuid: str = ""
-    # 超时（sidecar 调 Huly transactor 可能慢，给 15s）
-    huly_bridge_http_timeout: float = 15.0
+    # Huly Provider（Phase 8 B-full 重构 — Python 直连 REST，去 huly-bridge sidecar）
+    # 业务流程：login(admin_email, admin_password) → selectWorkspace(workspace_url)
+    # → 后续所有 Tx 走 transactor REST /api/v1/*
+    huly_url: str = "http://192.168.2.44:8087"  # Huly Front UI（也是 nginx 入口）
+    huly_accounts_url: str = "http://192.168.2.44:8087/_accounts"  # Account RPC
+    huly_workspace: str = "laios"  # workspaceUrl name
+    huly_admin_email: str = ""  # admin 账号 email（必须已有 social id）
+    huly_admin_password: str = ""  # admin 密码（敏感，仅 .env 注入）
+    # 业务通信走 chunter Channel（DM 降级为「每员工一个 Channel」+ bot 是 member）
+    # B-full-channel: 新建 DM 后立即 add ChatMessage server 端有 join 同步问题，绕开
+    huly_user_channel_prefix: str = "dm-"  # 每员工 channel 命名前缀（dm-zhangsan）
+    # HTTP 超时（Huly REST + Account RPC 通用）
+    huly_http_timeout: float = 15.0
 
     # Phase 8 / Plan 07 — MCP server（流程 MCP 化，MCP-01..06）
     # MCP_ALLOW_WRITE 默认 false — 防 LLM 误推进流程（PRD §15.3 AI 边界红线 + RESEARCH Pitfall #8）

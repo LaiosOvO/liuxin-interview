@@ -1,81 +1,79 @@
-"""Huly DocProvider — 通过 httpx 调 huly-bridge sidecar 实现 DocProvider Protocol。
-
-Phase 8 / HULY-06 / Plan 05 Task 3
+"""Huly DocProvider — Python 直连 REST 实现（Phase 8 B-full 重构，去 sidecar）。
 
 设计：
-- 所有 doc 操作走 sidecar `http://huly-bridge:7777/api/doc/*` 路由
-- BRIDGE_TOKEN 通过 X-Bridge-Token header 注入
-- 与 sidecar src/doc.ts 对齐：
-  - POST   /api/doc/create_space     body {name, owner_username}        → {space_id}
-  - POST   /api/doc/create_doc       body {space_id, title, markdown}    → {doc_id, url, title}
-  - GET    /api/doc/list_in_space    query space_id                       → {docs: [...]}
-  - DELETE /api/doc/document         query id                             → {deleted: bool}
-  - DELETE /api/doc/space            query id                             → {deleted, documents_removed}
+- Teamspace (collection) 通过 ops.create_doc 创建
+- Document 通过 ops.create_doc 创建（attachedTo=parent_id 或 NoParent）
+- 列表/查询走 rest.find_all
+- 删除走 ops.remove_doc
 
-ABS-03 — 完整生命周期：含 delete_collection / list_documents_in_collection / delete_document
+URL 构造规则与 sidecar 时代对齐：
+    http://192.168.2.44:8087/workbench/laios/document/{doc_id}
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
-
-import httpx
+import time
 
 from offboarding_flow.config import Settings
 
 from .base import DocInfo, ProviderError
+from .huly import (
+    CORE_SPACE_SPACE,
+    DOCUMENT_CLASS_DOCUMENT,
+    DOCUMENT_CLASS_TEAMSPACE,
+    DOCUMENT_IDS_NO_PARENT,
+    DOCUMENT_TYPE_DEFAULT,
+    HulyPlatformClient,
+    connect_huly,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class HulyDocProvider:
-    """Huly 实现的 DocProvider — HTTP 转发到 huly-bridge sidecar。"""
+    """Huly DocProvider — Python REST 直连，无 sidecar。"""
 
     name = "huly"
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._base_url = settings.huly_bridge_url.rstrip("/")
-        self._token = settings.huly_bridge_token
-        self._timeout = settings.huly_bridge_http_timeout
+        self._client: HulyPlatformClient | None = None
+        self._connect_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------ #
-    # 共享 httpx 客户端
+    # 连接管理
     # ------------------------------------------------------------------ #
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self._base_url,
-            headers={
-                "Content-Type": "application/json",
-                "X-Bridge-Token": self._token,
-            },
-            timeout=self._timeout,
-        )
-
-    @staticmethod
-    def _ensure_ok(action: str, response: httpx.Response) -> dict[str, Any]:
-        """统一解析 sidecar envelope。"""
-        if response.status_code >= 400:
+    async def _ensure_client(self) -> HulyPlatformClient:
+        if self._client is not None:
+            return self._client
+        async with self._connect_lock:
+            if self._client is not None:
+                return self._client
+            s = self._settings
+            if not s.huly_admin_email or not s.huly_admin_password:
+                raise ProviderError(
+                    "Huly admin 凭证未配置 — 检查 HULY_ADMIN_EMAIL / HULY_ADMIN_PASSWORD"
+                )
             try:
-                body = response.json()
-            except Exception:
-                body = {}
-            code = body.get("code", "HTTP_ERROR")
-            error = body.get("error", response.text[:200])
-            raise ProviderError(f"huly {action} 失败 ({response.status_code} {code}): {error}")
-        try:
-            payload = response.json()
-        except Exception as e:
-            raise ProviderError(f"huly {action} 响应非 JSON: {e}") from e
-        if not payload.get("ok"):
-            raise ProviderError(
-                f"huly {action} 失败: {payload.get('error', 'unknown')} "
-                f"(code={payload.get('code', 'UNKNOWN')})"
-            )
-        data = payload.get("data")
-        return data if isinstance(data, dict) else {}
+                self._client = await connect_huly(
+                    accounts_url=s.huly_accounts_url,
+                    admin_email=s.huly_admin_email,
+                    admin_password=s.huly_admin_password,
+                    workspace_url=s.huly_workspace,
+                    timeout=s.huly_http_timeout,
+                )
+            except Exception as e:
+                raise ProviderError(f"connect_huly 失败: {e}") from e
+            assert self._client is not None
+            return self._client
+
+    def _build_doc_url(self, doc_id: str) -> str:
+        base = self._settings.huly_url.rstrip("/")
+        workspace = self._settings.huly_workspace
+        return f"{base}/workbench/{workspace}/document/{doc_id}"
 
     # ------------------------------------------------------------------ #
     # Phase 7 老接口（保持兼容） — create / update / list / ensure / get
@@ -89,29 +87,32 @@ class HulyDocProvider:
         owner_usernames: list[str] | None = None,
         collection_name: str | None = None,
     ) -> DocInfo:
-        """创建一篇 Document。
+        """创建 Document — collection_name 必须传（= Teamspace _id）。
 
-        Huly 语义：Document 必须挂在某 Teamspace 之下；本方法采用约定 — 若 caller 不传 collection
-        信息则用 HulyDocProvider 的 default Teamspace（v1 不实现 — caller 必须配合 create_collection
-        先创 Teamspace 再 create_document）。
-
-        当前实现：把 collection_name 当作 space_id 传入（Plan 06 重构成完整 Teamspace 模型）。
+        v1 不自动创建 default Teamspace，caller 必须先 create_collection 拿 space_id。
         """
         if not collection_name:
             raise ProviderError(
-                "huly create_document 必须传 collection_name（= Teamspace space_id）— "
-                "请先 create_collection 拿到 space_id"
+                "huly create_document 必须传 collection_name（= Teamspace space_id）"
             )
-        async with self._client() as c:
-            r = await c.post(
-                "/api/doc/create_doc",
-                json={"space_id": collection_name, "title": title, "markdown": markdown},
+        pc = await self._ensure_client()
+        try:
+            doc_id = await pc.ops.create_doc(
+                DOCUMENT_CLASS_DOCUMENT,
+                collection_name,
+                {
+                    "title": title,
+                    "content": markdown,
+                    "parent": DOCUMENT_IDS_NO_PARENT,
+                    "rank": str(int(time.time() * 1000)),
+                },
             )
-        data = self._ensure_ok("create_doc", r)
+        except Exception as e:
+            raise ProviderError(f"huly create_document 失败: {e}") from e
         return DocInfo(
-            id=data.get("doc_id", ""),
-            url=data.get("url", ""),
-            title=data.get("title", title),
+            id=doc_id,
+            url=self._build_doc_url(doc_id),
+            title=title,
             provider=self.name,
         )
 
@@ -122,14 +123,19 @@ class HulyDocProvider:
         markdown: str,
         title: str | None = None,
     ) -> None:
-        """更新文档 — v1 stub（Plan 05 sidecar 暂未实现 update_doc 端点，Plan 06 补）。"""
-        logger.warning(
-            "[huly-doc-provider] update_document v1 未实现（sidecar 待补端点）；doc_id=%s",
-            doc_id,
-        )
-        raise ProviderError(
-            "huly update_document v1 未实现 — 待 Plan 06 补 sidecar POST /api/doc/update_doc 端点"
-        )
+        """全量替换文档内容（+ 可选 title）。"""
+        pc = await self._ensure_client()
+        existing = await pc.rest.find_one(DOCUMENT_CLASS_DOCUMENT, {"_id": doc_id})
+        if existing is None:
+            raise ProviderError(f"huly update_document: doc {doc_id} 不存在")
+        space = str(existing.get("space", ""))
+        operations: dict[str, object] = {"content": markdown}
+        if title is not None:
+            operations["title"] = title
+        try:
+            await pc.ops.update_doc(DOCUMENT_CLASS_DOCUMENT, space, doc_id, operations)
+        except Exception as e:
+            raise ProviderError(f"huly update_document {doc_id} 失败: {e}") from e
 
     async def list_documents(
         self,
@@ -137,66 +143,111 @@ class HulyDocProvider:
         query: str | None = None,
         limit: int = 10,
     ) -> list[DocInfo]:
-        """跨 collection 模糊搜索 — v1 返回空列表（Plan 06 实现）。"""
-        logger.warning(
-            "[huly-doc-provider] list_documents v1 返回 [] — 请用 list_documents_in_collection"
-        )
-        return []
+        """跨 collection 列文档（v1 不做 title 模糊匹配，直接拉前 limit 个）。"""
+        pc = await self._ensure_client()
+        docs = await pc.rest.find_all(DOCUMENT_CLASS_DOCUMENT, None, {"limit": limit})
+        return [
+            DocInfo(
+                id=str(d.get("_id", "")),
+                url=self._build_doc_url(str(d.get("_id", ""))),
+                title=str(d.get("title", "")),
+                provider=self.name,
+            )
+            for d in docs[:limit]
+        ]
 
     async def ensure_users(self, users: list[dict[str, str]]) -> dict[str, list[str]]:
-        """v1 sidecar 不暴露 user 创建 — Plan 06 由 seed_huly_users.py 离线维护。"""
+        """v1 no-op — 用户身份通过 seed_huly_users.py 离线维护。"""
         usernames = [u.get("username", "") for u in users if u.get("username")]
-        logger.warning(
-            "[huly-doc-provider] ensure_users v1 no-op（Plan 06 通过 seed 脚本维护）— users=%s",
-            usernames,
+        logger.debug(
+            "[huly-doc] ensure_users() v1 no-op — 见 seed_huly_users.py（users=%d）",
+            len(usernames),
         )
         return {"created": [], "skipped": usernames}
 
     async def get_document(self, doc_id: str) -> DocInfo | None:
-        """获取文档元数据 — v1 stub（sidecar 暂未实现 GET /api/doc/document）。"""
-        logger.warning(
-            "[huly-doc-provider] get_document v1 stub 返回 None；doc_id=%s",
-            doc_id,
+        """获取文档元数据。不存在返回 None。"""
+        pc = await self._ensure_client()
+        doc = await pc.rest.find_one(DOCUMENT_CLASS_DOCUMENT, {"_id": doc_id})
+        if doc is None:
+            return None
+        return DocInfo(
+            id=doc_id,
+            url=self._build_doc_url(doc_id),
+            title=str(doc.get("title", "")),
+            provider=self.name,
         )
-        return None
 
     # ------------------------------------------------------------------ #
-    # ABS-03 — 完整生命周期方法（Phase 08-01 新增）
+    # ABS-03 — 完整生命周期方法
     # ------------------------------------------------------------------ #
 
     async def create_collection(self, name: str, owner: str) -> str:
-        """创建 Teamspace — POST /api/doc/create_space。
+        """创建 Teamspace — return space_id。
 
         Args:
             name: Teamspace 显示名（如 "离职 · zhang.san"）
-            owner: owner 业务 username
-        Returns:
-            space_id（Huly Teamspace _id）
+            owner: owner 业务 username（用 _resolve_account 解 AccountUuid）
         """
-        async with self._client() as c:
-            r = await c.post(
-                "/api/doc/create_space",
-                json={"name": name, "owner_username": owner},
+        pc = await self._ensure_client()
+        owner_uuid = await self._resolve_account(pc, owner)
+        bot = pc.bot_account
+        members = [bot]
+        if owner_uuid:
+            members.append(owner_uuid)
+        try:
+            space_id = await pc.ops.create_doc(
+                DOCUMENT_CLASS_TEAMSPACE,
+                CORE_SPACE_SPACE,
+                {
+                    "name": name,
+                    "description": "离职归档",
+                    "private": False,
+                    "archived": False,
+                    "members": members,
+                    "owners": [owner_uuid] if owner_uuid else [bot],
+                    "autoJoin": False,
+                    "type": DOCUMENT_TYPE_DEFAULT,
+                },
             )
-        data = self._ensure_ok("create_space", r)
-        return data.get("space_id", "")
+            return space_id
+        except Exception as e:
+            raise ProviderError(f"huly create_collection({name}) 失败: {e}") from e
 
     async def list_collections(self) -> list[dict]:
-        """列出所有 Teamspace — v1 stub 返回 []（sidecar 暂未实现 GET /api/doc/spaces）。
-
-        Plan 06 seed 后业务层从 DB users 表自己维护 user → space_id 映射即可。
-        """
-        logger.warning(
-            "[huly-doc-provider] list_collections v1 返回 [] — 待 Plan 06 补 sidecar 端点"
-        )
-        return []
+        """列出所有 Teamspace。"""
+        pc = await self._ensure_client()
+        spaces = await pc.rest.find_all(DOCUMENT_CLASS_TEAMSPACE, None, {"limit": 100})
+        return [
+            {
+                "id": str(s.get("_id", "")),
+                "name": str(s.get("name", "")),
+                "provider": self.name,
+            }
+            for s in spaces
+        ]
 
     async def delete_collection(self, collection_id: str) -> None:
-        """删除整个 Teamspace（含所有文档）— DELETE /api/doc/space?id={collection_id}。"""
-        logger.warning("[huly-doc-provider] 即将删除 Teamspace %s（含所有文档）", collection_id)
-        async with self._client() as c:
-            r = await c.delete("/api/doc/space", params={"id": collection_id})
-        self._ensure_ok("delete_space", r)
+        """删除整个 Teamspace（连带所有 Document）— 幂等。"""
+        pc = await self._ensure_client()
+        logger.warning("[huly-doc] 即将删 Teamspace %s（含所有文档）", collection_id)
+        # 1. 列 + 逐个删 Document
+        docs = await pc.rest.find_all(DOCUMENT_CLASS_DOCUMENT, {"space": collection_id})
+        for d in docs:
+            d_id = str(d.get("_id", ""))
+            if d_id:
+                try:
+                    await pc.ops.remove_doc(DOCUMENT_CLASS_DOCUMENT, collection_id, d_id)
+                except Exception as e:
+                    logger.warning("[huly-doc] delete document %s 失败: %s", d_id, e)
+        # 2. 删 Teamspace
+        teamspace = await pc.rest.find_one(DOCUMENT_CLASS_TEAMSPACE, {"_id": collection_id})
+        if teamspace is None:
+            return  # 幂等
+        try:
+            await pc.ops.remove_doc(DOCUMENT_CLASS_TEAMSPACE, CORE_SPACE_SPACE, collection_id)
+        except Exception as e:
+            raise ProviderError(f"huly delete_collection {collection_id} 失败: {e}") from e
 
     async def list_documents_in_collection(
         self,
@@ -204,33 +255,50 @@ class HulyDocProvider:
         collection_id: str,
         limit: int = 50,
     ) -> list[DocInfo]:
-        """列出某 Teamspace 下所有 Document — GET /api/doc/list_in_space?space_id={...}。"""
-        async with self._client() as c:
-            r = await c.get(
-                "/api/doc/list_in_space",
-                params={"space_id": collection_id},
+        pc = await self._ensure_client()
+        docs = await pc.rest.find_all(
+            DOCUMENT_CLASS_DOCUMENT, {"space": collection_id}, {"limit": limit}
+        )
+        return [
+            DocInfo(
+                id=str(d.get("_id", "")),
+                url=self._build_doc_url(str(d.get("_id", ""))),
+                title=str(d.get("title", "")),
+                provider=self.name,
             )
-        data = self._ensure_ok("list_in_space", r)
-        docs_raw = data.get("docs") or []
-        if not isinstance(docs_raw, list):
-            return []
-        results: list[DocInfo] = []
-        for d in docs_raw[:limit]:
-            if not isinstance(d, dict):
-                continue
-            results.append(
-                DocInfo(
-                    id=str(d.get("id", "")),
-                    url=str(d.get("url", "")),
-                    title=str(d.get("title", "")),
-                    provider=self.name,
-                )
-            )
-        return results
+            for d in docs[:limit]
+        ]
 
     async def delete_document(self, doc_id: str) -> None:
-        """删除单篇文档 — DELETE /api/doc/document?id={doc_id}（404 视为幂等成功）。"""
-        async with self._client() as c:
-            r = await c.delete("/api/doc/document", params={"id": doc_id})
-        # sidecar 端不存在时返回 200 + deleted=false，不需要特殊处理
-        self._ensure_ok("delete_document", r)
+        pc = await self._ensure_client()
+        existing = await pc.rest.find_one(DOCUMENT_CLASS_DOCUMENT, {"_id": doc_id})
+        if existing is None:
+            return  # 幂等
+        space = str(existing.get("space", ""))
+        try:
+            await pc.ops.remove_doc(DOCUMENT_CLASS_DOCUMENT, space, doc_id)
+        except Exception as e:
+            raise ProviderError(f"huly delete_document {doc_id} 失败: {e}") from e
+
+    # ------------------------------------------------------------------ #
+    # 内部 helper
+    # ------------------------------------------------------------------ #
+
+    async def _resolve_account(self, pc: HulyPlatformClient, username: str) -> str | None:
+        """与 huly_im_provider._resolve_account 同语义（SocialIdentity → Employee mixin → personUuid）。"""
+        from .huly.constants import DEMO_EMAIL_DOMAIN
+
+        if not username:
+            return None
+        social_key = f"email:{username}@{DEMO_EMAIL_DOMAIN}"
+        si = await pc.rest.find_one("contact:class:SocialIdentity", {"key": social_key})
+        if not si:
+            return None
+        attached_to = si.get("attachedTo")
+        if not attached_to:
+            return None
+        emp = await pc.rest.find_one("contact:mixin:Employee", {"_id": attached_to})
+        if not emp:
+            return None
+        person_uuid = emp.get("personUuid")
+        return str(person_uuid) if person_uuid else None

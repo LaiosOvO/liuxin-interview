@@ -519,37 +519,12 @@ services:
       - offboarding-net
 
   # ===========================================================================
-  # Phase 8 / HULY-02 — huly-bridge sidecar 占位（profile=huly）
+  # Phase 8 B-full 重构 — huly-bridge sidecar 已废除
   # ---------------------------------------------------------------------------
-  # 本 Plan 03 仅占位声明；Plan 04 会真正实现 backend/sidecars/huly-bridge/
-  # 的 Dockerfile + src/。占位的目的是让 .env.example 与 compose 引用关系
-  # 早期可静态校验。
+  # backend/src/offboarding_flow/providers/huly/ 提供 Python TxOperations 完整复刻，
+  # 直接走 Huly REST /api/v1/* + Account RPC，不再需要 Node sidecar。
+  # 原 backend/sidecars/huly-bridge/ 目录保留作历史参考，可在确认稳定后删除。
   # ===========================================================================
-  huly-bridge:
-    profiles: ["huly"]
-    build:
-      context: ./backend/sidecars/huly-bridge
-      dockerfile: Dockerfile
-    container_name: offboarding-huly-bridge
-    environment:
-      HULY_URL: ${HULY_URL}
-      HULY_ACCOUNTS_URL: ${HULY_ACCOUNTS_URL}
-      HULY_WORKSPACE: ${HULY_WORKSPACE}
-      SERVER_SECRET: ${HULY_SERVER_SECRET}
-      BACKEND_URL: http://flow-api:8000
-      BRIDGE_TOKEN: ${HULY_BRIDGE_TOKEN}
-      PORT: "7777"
-    ports:
-      - "7777:7777"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:7777/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 30s
-    networks:
-      - offboarding-net
 
 volumes:
   # Huly 持久化卷（profile=huly-stack 启动时按需创建）

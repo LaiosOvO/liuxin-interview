@@ -256,14 +256,7 @@ def create_app() -> FastAPI:
     except ImportError as e:
         logger.info("[create_app] mattermost_webhook router not yet implemented: %s", e)
 
-    # Phase 8 / HULY-07 — sidecar 反向 webhook 入口（BRIDGE_TOKEN 鉴权）
-    try:
-        from offboarding_flow.api.internal_huly import router as internal_huly_router
-
-        app.include_router(internal_huly_router)
-        logger.info("[create_app] mounted internal_huly_router (Plan 08-05)")
-    except ImportError as e:
-        logger.info("[create_app] internal_huly router not yet implemented: %s", e)
+    # Phase 8 B-full — 去 sidecar 后 internal_huly 路由已删（无 sidecar 反向推送）
 
     # Phase 8 / Plan 07 — MCP HTTP /mcp/* mount（MCP-05，settings.mcp_http_mounted=True 时）
     # 避免起独立容器；演示部署 / 远程 LLM 客户端走这条
