@@ -8,17 +8,21 @@
 # - 端口 7777 暴露给 Python backend 调用
 # - healthcheck 与 docker-compose.yml 段对齐
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS base
+FROM node:20-alpine AS base
 WORKDIR /app
+
+# 内网/CN 网络：配 npm 镜像源（npmmirror = 淘宝），避 npmjs.org ECONNRESET
+RUN npm config set registry https://registry.npmmirror.com
 
 # 仅 copy package.json 先利用 layer cache
 COPY package.json package-lock.json* ./
 
 # 安装依赖：优先 npm ci（依赖 package-lock.json）；首次构建无 lock 时退回 npm install
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci --omit=dev --registry=https://registry.npmmirror.com \
+  || npm install --omit=dev --registry=https://registry.npmmirror.com
 
 # 安装 tsx 运行时（生产也需要，因为我们不预编译）
-RUN npm install --no-save tsx@4.19.0
+RUN npm install --no-save tsx@4.19.0 --registry=https://registry.npmmirror.com
 
 # copy 源码 + 配置
 COPY tsconfig.json ./

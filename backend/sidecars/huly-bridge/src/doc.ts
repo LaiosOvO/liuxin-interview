@@ -22,7 +22,10 @@
  */
 
 import coreModule from '@hcengineering/core'
-import documentModule from '@hcengineering/document'
+// Plan 04 deviation #1: @hcengineering/document v0.7.423 不存在 npm 公网（只有 0.7.0）
+// 临时 stub 兜底 — doc 路由会 graceful 501，im 路由不受影响
+// 上线后改用 chunter.Card 或安装真 package
+const documentModule: Record<string, unknown> = {}
 import type { Express, Request, Response } from 'express'
 
 import type { PlatformClient } from '@hcengineering/api-client'
