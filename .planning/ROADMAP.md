@@ -22,6 +22,18 @@
 | 6 | **部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨** | Dockerfile + nginx.conf + entrypoint.sh + APScheduler timeout_scan + 演示 runbook | DEPLOY-02/03, NOTI-05 | 2-3 天 | `docker compose up -d` 在 192.168.2.44 一键启动；E2E 演示通过；"Looks Done But Isn't" Checklist 全过 | LOW（HIGH confidence + 完整模板） |
 | 8 | **IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化** | 8A IMListener + dispatch_message 抽象重构；8B Huly Provider（Node sidecar + service token）+ 同步业务 DB 13 用户到 Huly；8C 流程节点 MCP server | ABS-01..05, HULY-01..09, MCP-01..06 | 16 天 / 3-4 周 | `.env` 改 `IM_PROVIDER=huly` 业务代码零改动；it.charlie 在 Huly DM 说"我要离职"启流程；Claude Desktop 配 MCP 后能 `get_flow` 返回 DAG | MEDIUM（多语言栈：Node sidecar + Python provider；详见 [PRD-Phase-8.md](../PRD-Phase-8.md)） |
 
+### Phase 8 进度（2026-05-17）
+
+| Plan | 内容 | REQ-IDs | 状态 |
+|------|------|---------|------|
+| 8-01 | IM 抽象层 + DocProvider/IMProvider 完善 + HandlerRegistry | ABS-01..05 | ✓ Complete (5 commits b27eb2d..c358edc) |
+| 8-02 | ABS-06 节点元数据外提到 config/nodes.yaml | ABS-06 | ○ Pending |
+| 8-03 | HulyDocProvider 实现（直接复用 ABS-03 新方法） | HULY-01..04 | ○ Pending |
+| 8-04 | HulyListener / HulyIMProvider 实现（直接复用 IMListener Protocol） | HULY-05..07 | ○ Pending |
+| 8-05 | Huly bot 命令（复用 BotHandlerRegistry） | HULY-08 | ○ Pending |
+| 8-06 | seed Huly 13 用户 + E2E | HULY-09 | ○ Pending |
+| 8-07 | 流程节点 MCP server | MCP-01..06 | ○ Pending |
+
 **总计**：21-26 工作日（v0.4 增量），**45 个 v1 requirements 100% 覆盖**（v0.3 base 31 + v0.4 增 14：AI 增强 6 + Bot 入口 4 + 逾期 4，含加分项）。Phase 8 是 v0.5 新增（16 天）。
 
 **面试评分点对齐**：评分点 1-9（含加分项）+ Mattermost @bot 简化入口均映射到对应 phase，详见 [REQUIREMENTS.md 评分对照表](./REQUIREMENTS.md#面试评分点对照)。

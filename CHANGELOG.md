@@ -11,6 +11,50 @@
 
 ## [Unreleased]
 
+### Phase 8 Plan 01 (2026-05-17) — IM 抽象层 + DocProvider/IMProvider 完善 + HandlerRegistry (ABS-01..05)
+
+#### Added — IM 抽象层基座（ABS-01 / ABS-02 / ABS-04）
+- `backend/src/offboarding_flow/im/protocol.py` — `IMListener` Protocol + `DispatchFn` 类型别名
+- `backend/src/offboarding_flow/im/context.py` — `IMHelpers` frozen dataclass（post_channel / send_dm / ensure_in_channel）
+- `backend/src/offboarding_flow/im/dispatcher.py` — `dispatch_message` 通用消息分发函数（IM 平台无关）
+- 抽取 `mattermost_listener._handle_event` 行 175-262 dispatch 业务编排逻辑到通用函数
+
+#### Changed — MattermostListener 实现 IMListener Protocol
+- `backend/src/offboarding_flow/workers/mattermost_listener.py`：实现 `IMListener` Protocol（含 name / start / stop / register_command_listener）
+- `backend/src/offboarding_flow/main.py` lifespan 通过 `mm_listener.register_command_listener(dispatch_message)` 注册统一 dispatch
+
+#### Added — DocProvider 完整 CRUD 生命周期（ABS-03）
+- `DocProvider` Protocol 新加 `delete_document` / `list_documents_in_collection` / `delete_collection` 三个生命周期方法
+- `OutlineClient` 底层实现（`POST /documents.delete` / `/documents.list` / `/collections.delete`，404 视为幂等成功）
+- `OutlineProvider` / `LarkDocsProvider` 实现 3 个新方法（飞书 drive API `DELETE /open-apis/drive/v1/files/{token}`）
+- WeCom / DingTalk stub 同步补齐（避免 Protocol 不兼容）
+- 新增 `CollectionInfo` frozen dataclass + `DispatchFn` 类型别名
+
+#### Added — IMProvider listener hook（ABS-04）
+- `IMProvider` Protocol 新加 `register_command_listener` 反向订阅 hook
+- `MattermostProvider` / `LarkIMProvider` 实现 no-op hook（长连接 listener 仍由 workers/mattermost_listener.py 承担）
+
+#### Refactored — BotService.dispatch 改为 HandlerRegistry（ABS-05）
+- `backend/src/offboarding_flow/services/bot_handler_registry.py` — `BotHandlerRegistry` + `UnknownBotCommandError`
+- `BotService.__init__` 内调 `_register_handlers()` 集中注册全部 11 命令
+- `dispatch()` 函数体由 11 个 if/elif 改为 `await self._registry.invoke(cmd, ctx)`
+- 每个 handler 通过 `_dispatch_xxx` wrapper 适配统一签名 `(cmd, ctx) -> str`
+- 新加命令免动 dispatch 函数 — (1) 加 CMD_ 常量 + (2) 加 handle_xxx + (3) 在 _register_handlers 加一行 register
+
+#### Tests — 58 个新单测 + 集成测试覆盖 100%（新代码）
+- `tests/unit/im/test_protocol.py` — 5 tests（IMListener Protocol runtime_checkable + IMHelpers frozen）
+- `tests/unit/im/test_dispatcher.py` — 8 tests（dispatch_message happy path + 4 错误分支 + intent router fallback）
+- `tests/integration/test_mattermost_listener_dispatch.py` — 6 tests（MM listener ↔ Protocol 契约）
+- `tests/unit/providers/test_doc_provider_protocol.py` — 6 tests（DocProvider Protocol 兼容性 + CollectionInfo）
+- `tests/unit/providers/test_im_provider_protocol.py` — 7 tests（IMProvider Protocol + register_command_listener）
+- `tests/unit/providers/test_outline_provider_lifecycle.py` — 6 tests（OutlineProvider 3 个新方法）
+- `tests/unit/providers/test_outline_client_lifecycle.py` — 8 tests（OutlineClient 底层 3 个新方法 + 404 幂等 + 网络错误）
+- `tests/unit/providers/test_lark_provider_lifecycle.py` — 8 tests（LarkDocsProvider 3 个新方法 + not_found 幂等）
+- `tests/unit/services/test_bot_handler_registry.py` — 10 tests（HandlerRegistry register / invoke / 异常）
+- `tests/unit/services/test_bot_service_dispatch_via_registry.py` — 13 tests（11 命令 dispatch + SELF_APPLY + 未知命令）
+- **新代码 100% 行覆盖**（im/ + bot_handler_registry + providers/base）
+- **现有 332 测试 0 回归**（19 个 pre-existing failures 在 `.planning/phases/08-huly-abstraction/deferred-items.md`）
+
 ### Phase 7+ (2026-05-17) — 协作文档 + Provider 抽象 + 按员工分文件夹 + 生产级 DAG + 完整 E2E
 
 #### Added — DocProvider / IMProvider 抽象层
