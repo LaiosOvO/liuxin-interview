@@ -165,6 +165,64 @@ zhang.san 在 LAIOS / off-topic channel 发送：
 - 💡 化解建议（具体下一步）
 - 决策段：`by @it.charlie` · 影响：`@hr.alice` · 协作要求
 
+### 6.4 自然语言意图路由 — 空请求 → ai_qa 兜底引导
+
+it.charlie 在 DM 发：
+
+```
+@offboarding-bot 你能不能帮我总结一下今天的会议纪要
+```
+
+bot 走 `bot_intent_router` LLM 分类，识别意图为 `ai_qa`（含义不明确 / 缺会议内容），不触发 meeting-ingest，而是回复引导语：
+
+> 当然可以，请提供会议的详细内容，我会帮您进行总结。请注意，AI 总结仅供参考，具体内容会议记录为准。
+
+![自然语言空请求 → ai_qa 兜底](e2e-screenshots-2026-05-17-final/21-meeting-nl-empty.png)
+
+证据：`intent=ai_qa conf=0.90`（log line in `[mm_listener]`）。
+
+### 6.5 自然语言意图路由 — 真实内容 → meeting-ingest 自动触发 + AI 深度分析
+
+it.charlie 在 DM 用自然语言**带完整内容**发：
+
+```
+@offboarding-bot 帮我总结一下今天的 IT 团队会议纪要：参与人 it.charlie / hr.bob /
+hr.alice / li.si。1. it.charlie 负责整理 cmdb-internal / monitor-dashboard /
+oa-automation 3 个项目运维 SOP，本周五前提交；2. hr.bob 反馈 IT 团队接手人定不下来
+是当前卡点，建议先用临时 oncall 顶替；3. 决定下月 1 号正式切换 oncall，由 hr.alice
+牵头协调跨团队。
+```
+
+bot 走 `bot_intent_router` LLM 分类，识别意图为 `meeting-ingest`（有完整会议内容），
+**自动**触发 `bot_service.handle_meeting_ingest`：
+
+1. `MeetingService.extract` → JSON 解析任务 / 卡点 / 决策
+2. `_normalize_owners` → 把 LLM 可能出的 @unknown 兜底回原文真 username
+3. `MeetingService.analyze` → asyncio.gather 三层独立深度分析
+4. `MeetingService.distribute` → Outline 写文档 + Mattermost channel 公示 + 给每个 owner 私 DM
+
+![自然语言 + 真实内容 → 自动 meeting-ingest → 个人 AI 深度分析](e2e-screenshots-2026-05-17-final/22-meeting-nl-real-analysis.png)
+
+截图含：
+
+- **标题**：`📋 会议「IT 团队会议纪要」相关你的事项 AI 深度分析`
+- **🎯 你的任务（1）**：整理 cmdb-internal / monitor-dashboard / oa-automation 3 个项目运维 SOP · 截止 2023-04-07
+  - 任务定位、建议执行步骤、关键风险、协作提醒
+- **⚠️ 涉及你的卡点（1）**：IT 团队接手人定不下来
+  - 风险定性：严重度 high、紧迫度 high
+  - 影响分析：影响 `@it.charlie` 负责的 cmdb-internal / monitor-dashboard 任务执行
+  - 化解建议：1. 确定紧急招聘流程；2. 与其他部门沟通寻求临时支援；3. 评估现有团队成员
+  - 升级触发条件：若招聘流程超过 3 天未果，需升级至管理层
+
+**关键证据**：
+
+| 维度 | 期望 | 实测 |
+|---|---|---|
+| 是否要显式 `meeting-ingest` 命令 | 否（用自然语言） | ✅ LLM 识别意图 → 自动路由 |
+| owner 是否被正确识别 | `@it.charlie` 实名 | ✅ 不是 `@unknown` |
+| 是否同时生成 Outline 文档 + DM | 是 | ✅ 二者都生成 |
+| 是否给非 owner 用户也发 DM | 否（只发给相关人） | ✅ 个性化 brief |
+
 ---
 
 ## 7. @username 链接化（之前修复）

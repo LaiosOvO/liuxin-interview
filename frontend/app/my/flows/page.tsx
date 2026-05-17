@@ -178,8 +178,9 @@ function FlowProgressCard({
 }) {
   const nodes = flow.nodes ?? [];
   // 进度按业务固定 11 节点算（与 DAG NODE_DEFS 对齐），避免 upsert 时机不同导致 1/3 vs 1/4 抖动
+  // returned 也算「已处理」（节点已经审批过，只是结果是退回），否则演示退回路径会一直差 1
   const TOTAL_BUSINESS_NODES = 11;
-  const done = nodes.filter((n) => n.status === 'done').length;
+  const done = nodes.filter((n) => n.status === 'done' || n.status === 'returned').length;
   const total = TOTAL_BUSINESS_NODES;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const activeNode = nodes.find((n) => n.status === 'waiting_human');
