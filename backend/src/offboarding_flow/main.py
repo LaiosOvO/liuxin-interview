@@ -243,6 +243,24 @@ def create_app() -> FastAPI:
     except ImportError as e:
         logger.info("[create_app] internal_huly router not yet implemented: %s", e)
 
+    # Phase 8 / Plan 07 — MCP HTTP /mcp/* mount（MCP-05，settings.mcp_http_mounted=True 时）
+    # 避免起独立容器；演示部署 / 远程 LLM 客户端走这条
+    # Bearer JWT 鉴权由 MagicLinkAuthMiddleware 处理（C-2 复用 magic-link JWT）
+    if settings.mcp_http_mounted:
+        try:
+            from offboarding_flow.mcp.server import mcp
+
+            # FastMCP 3.x http_app() 返回 starlette 兼容 ASGI sub-app
+            app.mount("/mcp", mcp.http_app())
+            logger.info("[create_app] mounted FastMCP HTTP /mcp/* (MCP-05)")
+        except ImportError as e:
+            logger.info("[create_app] MCP server not available: %s", e)
+    else:
+        logger.info(
+            "[create_app] MCP_HTTP_MOUNTED=false — MCP 走 stdio mode "
+            "(python -m offboarding_flow.mcp.runner stdio)"
+        )
+
     return app
 
 
