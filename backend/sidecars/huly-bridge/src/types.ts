@@ -72,3 +72,122 @@ export interface HealthzResponse {
   /** 最近一次连接错误（若 huly_connected=false） */
   readonly last_error: string | null
 }
+
+// ============================================================================
+// Plan 05 — 业务路由请求 / 响应 schema
+// ============================================================================
+
+/**
+ * POST /api/im/send_dm 请求体。
+ *
+ * Python backend HulyIMProvider.send_dm 调用。
+ */
+export interface SendDmRequest {
+  /** 目标 username（Plan 06 seed 后形如 "hr.alice" / "zhang.san"） */
+  readonly to_username: string
+  /** Markdown 文本（中文可，长度 ≤ Huly chunter ChatMessage 限制） */
+  readonly markdown: string
+}
+
+/**
+ * POST /api/im/post_channel 请求体。
+ */
+export interface PostChannelRequest {
+  /** 目标 Channel id（已知的 chunter.class.Channel _id） */
+  readonly channel_id: string
+  /** Markdown 文本 */
+  readonly markdown: string
+}
+
+/**
+ * POST /api/im/ensure_member 请求体。
+ */
+export interface EnsureMemberRequest {
+  /** 目标 Channel id */
+  readonly channel_id: string
+  /** 要加进 channel 的 username */
+  readonly username: string
+}
+
+/**
+ * IM 路由通用成功响应 data 字段。
+ */
+export interface ImSendDmResult {
+  readonly message_id: string
+  readonly dm_id: string
+}
+
+export interface ImPostChannelResult {
+  readonly message_id: string
+}
+
+export interface ImEnsureMemberResult {
+  readonly already_member: boolean
+}
+
+// ============================================================================
+// Doc 路由
+// ============================================================================
+
+/**
+ * POST /api/doc/create_space 请求体。
+ *
+ * 对应 Python HulyDocProvider.create_collection — 创建 Teamspace。
+ */
+export interface CreateSpaceRequest {
+  /** Space 显示名（如 "离职 · zhang.san"） */
+  readonly name: string
+  /** Space 所属 owner（owner_username → AccountUuid） */
+  readonly owner_username: string
+}
+
+export interface CreateSpaceResult {
+  readonly space_id: string
+}
+
+/**
+ * POST /api/doc/create_doc 请求体。
+ */
+export interface CreateDocRequest {
+  readonly space_id: string
+  readonly title: string
+  readonly markdown: string
+  /** 可选父文档 id；空 → 创建为根级 doc */
+  readonly parent_id?: string
+}
+
+export interface CreateDocResult {
+  readonly doc_id: string
+  /** 完整 web URL */
+  readonly url: string
+  readonly title: string
+}
+
+export interface ListInSpaceResult {
+  readonly docs: ReadonlyArray<{
+    readonly id: string
+    readonly title: string
+    readonly url: string
+  }>
+}
+
+/**
+ * Plan 05 — 反向 webhook payload（sidecar → backend）。
+ *
+ * sidecar listener.ts 检测到 chat 消息时 POST 这个 body 到
+ * `${BACKEND_URL}/api/internal/huly/event`（X-Bridge-Token 鉴权）。
+ */
+export interface ChatEventPayload {
+  /** Huly 平台 modifiedBy = AccountUuid */
+  readonly sender_account: string
+  /** 反查得到的业务 username（"hr.alice"），失败时为 undefined */
+  readonly sender_username?: string
+  /** 消息所在 channel id（dm._id / channel._id） */
+  readonly channel_id: string
+  /** Huly 端 attachedToClass — 用于映射 channel_type */
+  readonly attached_to_class: string
+  /** Markdown 消息文本 */
+  readonly message: string
+  /** Huly 端创建时间（ms epoch） */
+  readonly ts: number
+}

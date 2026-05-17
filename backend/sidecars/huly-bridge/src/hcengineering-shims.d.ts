@@ -99,5 +99,49 @@ declare module '@hcengineering/api-client' {
   export default apiClient
 }
 
-declare module '@hcengineering/chunter'
-declare module '@hcengineering/contact'
+declare module '@hcengineering/chunter' {
+  /** Chunter 模块 class id 集合 */
+  export interface ChunterClass {
+    DirectMessage: unknown
+    Channel: unknown
+    ChatMessage: unknown
+  }
+
+  const chunter: {
+    class: ChunterClass
+    [key: string]: unknown
+  }
+  export default chunter
+}
+
+declare module '@hcengineering/contact' {
+  export interface ContactClass {
+    SocialIdentity: unknown
+    Person: unknown
+  }
+
+  export interface ContactMixin {
+    Employee: unknown
+  }
+
+  const contact: {
+    class: ContactClass
+    mixin: ContactMixin
+    [key: string]: unknown
+  }
+  export default contact
+}
+
+// Document 包 v0.7.423 在 npm 公网不可用（Plan 04 deviation #1）；本 shim 仅声明
+// 类型契约让 sidecar 编译通过；运行时 Plan 05 Task 2 doc.ts 用 chunter.Card 兜底
+declare module '@hcengineering/document' {
+  export interface DocumentClass {
+    Teamspace: unknown
+    Document: unknown
+  }
+  const document: {
+    class: DocumentClass
+    [key: string]: unknown
+  }
+  export default document
+}
