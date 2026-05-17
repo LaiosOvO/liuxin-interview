@@ -37,7 +37,12 @@ from offboarding_flow.services.bot_command_parser import (
     CMD_STATUS,
     CMD_SUGGEST,
     CMD_USERS_SYNC,
+    SELF_APPLY_SENTINEL,
     BotCommand,
+)
+from offboarding_flow.services.bot_handler_registry import (
+    BotHandlerRegistry,
+    UnknownBotCommandError,
 )
 from offboarding_flow.state_store.enums import FlowStatus, NodeStatus
 from offboarding_flow.state_store.models import FlowInstance, NodeState
@@ -200,7 +205,12 @@ def _format_node_line(
 # BotService
 # ---------------------------------------------------------------------------
 class BotService:
-    """Bot 命令编排器 — 接 FlowService / Repository / session 做实际工作。"""
+    """Bot 命令编排器 — 接 FlowService / Repository / session 做实际工作。
+
+    Phase 08-01 ABS-05 重构：dispatch 内 11 个 if/elif 改为 HandlerRegistry 查表。
+    新加命令只需 (1) 在 bot_command_parser 加 CMD_ 常量 + (2) 在 BotService 加 handler 方法
+    + (3) 在 _register_handlers() 加一行 register —— dispatch() 函数体 0 改动。
+    """
 
     def __init__(
         self,
@@ -209,50 +219,95 @@ class BotService:
     ) -> None:
         self.session = session
         self.flow_service = flow_service
+        self._registry = BotHandlerRegistry()
+        self._register_handlers()
 
     # ------------------------------------------------------------------ #
-    # 主入口：分发
+    # 注册所有 handler 到 registry（ABS-05 — 集中声明，新加命令免动 dispatch）
+    # ------------------------------------------------------------------ #
+    def _register_handlers(self) -> None:
+        """把所有 handler 方法绑定到 registry。
+
+        每个 wrapper 把 BotCommand.args 解出 → 调用具体 handle_xxx 方法。
+        wrapper 统一签名 `async (cmd, ctx) -> str`，与 BotHandler 类型对齐。
+        """
+        self._registry.register(CMD_HELP, self._dispatch_help)
+        self._registry.register(CMD_START, self._dispatch_start)
+        self._registry.register(CMD_STATUS, self._dispatch_status)
+        self._registry.register(CMD_REPORT, self._dispatch_report)
+        self._registry.register(CMD_SUGGEST, self._dispatch_suggest)
+        self._registry.register(CMD_LIST, self._dispatch_list)
+        self._registry.register(CMD_SIMULATE_TIMEOUT, self._dispatch_simulate_timeout)
+        self._registry.register(
+            CMD_SIMULATE_EVIDENCE_MISSING, self._dispatch_simulate_evidence_missing
+        )
+        self._registry.register(CMD_MEETING_INGEST, self._dispatch_meeting_ingest)
+        self._registry.register(CMD_MEETING_LIST, self._dispatch_meeting_list)
+        self._registry.register(CMD_USERS_SYNC, self._dispatch_users_sync)
+
+    # ------------------------------------------------------------------ #
+    # 主入口：分发（ABS-05 — HandlerRegistry 查表）
     # ------------------------------------------------------------------ #
     async def dispatch(
         self,
         cmd: BotCommand,
         ctx: BotInvocationContext,
     ) -> str:
-        """根据命令名分发到对应 handler，返回回复文本。
+        """根据命令名查 registry → 调对应 handler → 返回回复文本。
 
         Raises:
+            UnknownBotCommandError: 命令未注册（不该发生 — bot_command_parser 应已穷举）
             BotPermissionError: BOT-04 角色校验失败
             BotFlowNotFoundError: flow_id 查不到
             其他业务异常由 webhook 端点统一捕获
         """
-        if cmd.name == CMD_HELP:
-            return self.handle_help()
-        if cmd.name == CMD_START:
-            # 自然语言"我要离职"由 parser 标记 SELF_APPLY_SENTINEL → 用调用者自己当 employee
-            from offboarding_flow.services.bot_command_parser import SELF_APPLY_SENTINEL
+        try:
+            return await self._registry.invoke(cmd, ctx)
+        except UnknownBotCommandError as e:
+            # 保持向后兼容：原 dispatch 抛 ValueError("未实现的命令分支: ...")
+            # 重构后包装为同样的 ValueError 文本，让现有测试 + 调用方不破
+            raise ValueError(f"未实现的命令分支: {cmd.name} ({e})") from e
 
-            target = ctx.user_name if cmd.args[0] == SELF_APPLY_SENTINEL else cmd.args[0]
-            return await self.handle_start(target, ctx)
-        if cmd.name == CMD_STATUS:
-            return await self.handle_status(cmd.args[0])
-        if cmd.name == CMD_REPORT:
-            return self.handle_report_stub(cmd.args[0])
-        if cmd.name == CMD_SUGGEST:
-            return self.handle_suggest_stub(cmd.args[0])
-        if cmd.name == CMD_LIST:
-            return await self.handle_list(cmd.args[0])
-        if cmd.name == CMD_SIMULATE_TIMEOUT:
-            return await self.handle_simulate_timeout(cmd.args[0], cmd.args[1])
-        if cmd.name == CMD_SIMULATE_EVIDENCE_MISSING:
-            return await self.handle_simulate_evidence_missing(cmd.args[0], cmd.args[1])
-        if cmd.name == CMD_MEETING_INGEST:
-            return await self.handle_meeting_ingest(cmd.args[0], ctx)
-        if cmd.name == CMD_MEETING_LIST:
-            return await self.handle_meeting_list(ctx)
-        if cmd.name == CMD_USERS_SYNC:
-            return await self.handle_users_sync(ctx)
-        # 不应到达 — bot_command_parser 已穷举
-        raise ValueError(f"未实现的命令分支: {cmd.name}")
+    # ------------------------------------------------------------------ #
+    # 内部 dispatch wrapper — 统一 (cmd, ctx) → str 签名（ABS-05）
+    # 每个 wrapper 只做"解 args + 调原 handler"，零业务逻辑
+    # ------------------------------------------------------------------ #
+    async def _dispatch_help(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return self.handle_help()
+
+    async def _dispatch_start(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        # 自然语言"我要离职"由 parser 标记 SELF_APPLY_SENTINEL → 用调用者自己当 employee
+        target = ctx.user_name if cmd.args[0] == SELF_APPLY_SENTINEL else cmd.args[0]
+        return await self.handle_start(target, ctx)
+
+    async def _dispatch_status(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return await self.handle_status(cmd.args[0])
+
+    async def _dispatch_report(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return self.handle_report_stub(cmd.args[0])
+
+    async def _dispatch_suggest(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return self.handle_suggest_stub(cmd.args[0])
+
+    async def _dispatch_list(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return await self.handle_list(cmd.args[0])
+
+    async def _dispatch_simulate_timeout(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return await self.handle_simulate_timeout(cmd.args[0], cmd.args[1])
+
+    async def _dispatch_simulate_evidence_missing(
+        self, cmd: BotCommand, ctx: BotInvocationContext
+    ) -> str:
+        return await self.handle_simulate_evidence_missing(cmd.args[0], cmd.args[1])
+
+    async def _dispatch_meeting_ingest(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return await self.handle_meeting_ingest(cmd.args[0], ctx)
+
+    async def _dispatch_meeting_list(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return await self.handle_meeting_list(ctx)
+
+    async def _dispatch_users_sync(self, cmd: BotCommand, ctx: BotInvocationContext) -> str:
+        return await self.handle_users_sync(ctx)
 
     # ------------------------------------------------------------------ #
     # meeting-ingest — AI 提取会议纪要 → Outline 文档 → channel + DM 分发
