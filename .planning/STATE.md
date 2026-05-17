@@ -5,24 +5,26 @@
 See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 **Core value:** 让"流程状态机"端到端可见且可驱动 — 一封邮件 → 一键登录 → 一段文本 + 一次决策 → 流程自动推进直到申请人最终确认
-**Current focus:** Phase 8 IM/Doc 全抽象 + Huly 接入 — Plan 01 (IM 抽象层 + DocProvider/IMProvider 完善 + HandlerRegistry) **已完成**
+**Current focus:** Phase 8 IM/Doc 全抽象 + Huly 接入 — Plan 03 (Huly Docker stack + profile + .env.example) **已完成**；下一步 Plan 04 huly-bridge sidecar 实现
 
 ---
 
 ## Current Status
 
-**Stage:** Phase 8 Plan 01 完成 — IM/Doc 抽象基座就位（436 测试收集，58 个新覆盖，新代码 100% 行覆盖）
+**Stage:** Phase 8 Plan 03 完成 — Huly 完整 stack 纳入主仓 docker-compose.yml（11 业务 hardcoreeng/* + 4 基础设施 + 1 sidecar 占位，profile 隔离默认 0 影响）
 
 **Last completed:**
-- Phase 8 Plan 01: IMListener Protocol + dispatch_message + DocProvider 3 新 lifecycle 方法 + IMProvider register hook + BotHandlerRegistry（5 commits b27eb2d..c358edc）— ABS-01..05 5 个 REQ 全部 Complete
+- Phase 8 Plan 03: scripts/pull_huly_images.sh + docker-compose.yml huly-stack/huly profile + .env.example HULY_* + 11 个集成测试（2 commits 51183c6..fa8b427）— HULY-01/02 2 个 REQ Complete
+- Phase 8 Plan 01: IMListener Protocol + dispatch_message + DocProvider 3 新 lifecycle 方法 + IMProvider register hook + BotHandlerRegistry（5 commits b27eb2d..c358edc）— ABS-01..05 5 个 REQ Complete
 - Phase 7+ (2026-05-17): 协作文档抽象 + 按员工分文件夹 + 生产级 DAG + 完整 E2E（commit 51b1062）
 - Phase 2-6 + 4.5: 全部历史 phase 已 merge main
 
-**Next action:** Phase 8 后续 plan：
+**Next action:** Phase 8 剩余 plan：
 - Plan 02 (ABS-06 节点元数据外提到 config/nodes.yaml)
-- Plan 03 (HulyDocProvider 实现 — 复用 ABS-03 接口)
-- Plan 04 (HulyListener / HulyIMProvider 实现 — 复用 IMListener Protocol)
-- Plan 05/06/07 (Huly bot + seed + MCP server)
+- Plan 04 (huly-bridge sidecar 实现 — backend/sidecars/huly-bridge/Dockerfile + src/，复用本 plan 端口 7777 + BRIDGE_TOKEN 契约)
+- Plan 05 (HulyDocProvider 实现 — 通过 huly-bridge:7777 调 Huly Account API)
+- Plan 06 (HulyListener / HulyIMProvider 实现 — 复用 IMListener Protocol)
+- Plan 07 (Huly bot seed + MCP server)
 
 ---
 
@@ -38,7 +40,7 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 5 | 前端 Next.js + 多角色 + 申请人时间线 + 逾期标签 | ✓ Complete |
 | 6 | 部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨 | ✓ Complete |
 | 7 | 协作文档抽象 + 按员工分文件夹 + 生产级 DAG + E2E | ✓ Complete |
-| 8 | IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化 | ◐ In Progress（Plan 01 ✓；Plan 02..07 待执行）|
+| 8 | IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化 | ◐ In Progress（Plan 01 ✓ + Plan 03 ✓；Plan 02 / 04..07 待执行）|
 
 详见 [.planning/ROADMAP.md](./ROADMAP.md)。
 
@@ -58,6 +60,18 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 2026-05-17 | Phase 7+ (single commit 51b1062) | 协作文档抽象（DocProvider/IMProvider Protocol + 5 实现）+ 按员工分文件夹 + 生产级 DAG + AI 节点交接 + 完整 E2E（it.charlie + xiao.fang） |
 | 2026-05-17 | plan-phase 8/01..07 落盘 | Phase 8 拆 7 plan（ABS / Huly / MCP 三件套）— PRD-Phase-8 + 设计 docs 一并入库；08-01 / 08-02 / 08-03 / 08-04 / 08-05 / 08-06 / 08-07 PLAN.md 全部 ready |
 | 2026-05-17 | execute-plan 08-01 (resume) | Plan 01 (IM/Doc 抽象 + HandlerRegistry) 完成 — 前一次 executor 完 task 01-01/02/03（commits b27eb2d / 6db4968 / 9064c3a）；本次 executor 继续完成 01-04..01-08（commits 3d4abd0 / c358edc + 最终 metadata commit）— 58 个新单测全 PASS + 新代码 100% 覆盖率 + ABS-01..05 5 个 REQ 全部 Complete + 0 回归 |
+| 2026-05-17 | execute-plan 08-03 --auto | Plan 03 (Huly Docker stack + profile) 完成 — 2 commits (51183c6 feat HULY-01 scripts + docs / fa8b427 feat HULY-02 compose + .env + 11 tests)；15 镜像清单（11 业务 + 4 基础设施，对齐上游 huly-selfhost v0.7.423）+ huly-stack/huly 两 profile + 默认 0 影响现有 6 service + 11 集成测试 PASS + gitleaks 通过；HULY-01/02 2 REQ Complete |
+
+---
+
+## Plan 03 Decisions (2026-05-17)
+
+- **业务服务由 plan 列的 9 个修正为 11 个** — 读上游 huly-selfhost compose.yml 发现漏 fulltext + kvs（核心依赖），补上
+- **Elasticsearch 选 7.14.2 而非 8.12** — 与上游 huly-selfhost 一致；ingest-attachment 插件自动安装
+- **Huly Redis 不重复起** — 复用项目独立 offboarding-redis:6380（v1 暂不启用 hulypulse）
+- **HULY_SERVER_SECRET 不带 :? 强校验** — docker compose 全局解析 env，profile 隔离不阻断；改 runbook 显式提醒「启动 huly-stack 前必填」
+- **MinIO 端口隔离 9091/9092** — 避项目原 MinIO 9000/9001 冲突
+- **huly-bridge sidecar 仅占位 build path** — Plan 04 才实现 Dockerfile + src/；端口 7777 + BRIDGE_TOKEN + container_name `offboarding-huly-bridge` 作为契约固化
 
 ---
 
@@ -71,4 +85,4 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 ---
 
-*Last updated: 2026-05-17 after Phase 8 Plan 01 completion (IM/Doc 抽象 + HandlerRegistry)*
+*Last updated: 2026-05-17 after Phase 8 Plan 03 completion (Huly Docker stack + huly-stack/huly profile + .env.example HULY_*)*

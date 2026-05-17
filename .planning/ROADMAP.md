@@ -28,11 +28,11 @@
 |------|------|---------|------|
 | 8-01 | IM 抽象层 + DocProvider/IMProvider 完善 + HandlerRegistry | ABS-01..05 | ✓ Complete (5 commits b27eb2d..c358edc) |
 | 8-02 | ABS-06 节点元数据外提到 config/nodes.yaml | ABS-06 | ○ Pending |
-| 8-03 | HulyDocProvider 实现（直接复用 ABS-03 新方法） | HULY-01..04 | ○ Pending |
-| 8-04 | HulyListener / HulyIMProvider 实现（直接复用 IMListener Protocol） | HULY-05..07 | ○ Pending |
-| 8-05 | Huly bot 命令（复用 BotHandlerRegistry） | HULY-08 | ○ Pending |
-| 8-06 | seed Huly 13 用户 + E2E | HULY-09 | ○ Pending |
-| 8-07 | 流程节点 MCP server | MCP-01..06 | ○ Pending |
+| 8-03 | Huly 镜像 pull 脚本 + docker-compose huly-stack/huly profile + .env.example HULY_* + 11 集成测试 | HULY-01..02 | ✓ Complete (2 commits 51183c6..fa8b427) |
+| 8-04 | huly-bridge sidecar 实现（backend/sidecars/huly-bridge/ Dockerfile + src/） | HULY-03 | ○ Pending |
+| 8-05 | HulyDocProvider 实现（通过 huly-bridge:7777 调 Huly Account API） | HULY-04 | ○ Pending |
+| 8-06 | HulyListener / HulyIMProvider + Huly bot 命令 + seed 13 用户 + E2E | HULY-05 | ○ Pending |
+| 8-07 | 流程节点 MCP server | MCP-01..02 | ○ Pending |
 
 **总计**：21-26 工作日（v0.4 增量），**45 个 v1 requirements 100% 覆盖**（v0.3 base 31 + v0.4 增 14：AI 增强 6 + Bot 入口 4 + 逾期 4，含加分项）。Phase 8 是 v0.5 新增（16 天）。
 

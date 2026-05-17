@@ -11,6 +11,51 @@
 
 ## [Unreleased]
 
+### Phase 8 Plan 03 (2026-05-17) — Huly 镜像 + docker-compose huly-stack/huly profile (HULY-01..02)
+
+#### Added — Huly 镜像一键拉取脚本（HULY-01）
+- `scripts/pull_huly_images.sh`（189 行）— 拉 15 个镜像（11 hardcoreeng/* 业务 + 4 基础设施）
+  - `HULY_VERSION` env 控制版本（默认 v0.7.423）
+  - `--dry-run` 仅打印不真拉
+  - 单镜像失败重试 3 次（10s / 30s / 60s 指数退避）
+  - 末尾 `docker images` 验证清单
+
+#### Added — Huly stack 部署文档
+- `deploy/huly/HULY_IMAGES.md`（211 行）— 15 镜像清单 + 端口冲突表 + 启动依赖图 + 升级降级流程 + 5 个 Pitfall（SERVER_SECRET 一致性 / schema mismatch / ES OOM / cockroach 慢启动 / MinIO 端口避让）
+- `deploy/huly/README.md`（189 行）— 3 步快速开始 runbook + 7 个 health 检查 + 5 个常见故障排查
+
+#### Added — docker-compose huly-stack + huly 两个 profile（HULY-02）
+- `docker-compose.yml`（+367 行追加，不修改任何现有 service）：
+  - 4 基础设施 service：`huly-cockroach` (CockroachDB v24.2) / `huly-redpanda` (v24.3) / `huly-elastic` (ES 7.14.2) / `huly-minio`（端口 9091/9092 避项目原 MinIO）
+  - 11 业务 hardcoreeng/* service：`account` / `front` / `transactor` / `collaborator` / `workspace` / `stats` / `rekoni` / `fulltext` / `kvs` / `love` / `print`，统一 `${HULY_VERSION}`
+  - 1 sidecar 占位 `huly-bridge`（profile=huly，Plan 04 实现 `backend/sidecars/huly-bridge/`）
+  - 共享 `offboarding-net` 网络；4 个 named volume（cockroach/redpanda/elastic/minio）
+  - 关键 service 加 healthcheck（cockroach SQL ping / front HTTP / elastic cluster health / minio mc ready）
+
+#### Added — .env.example Phase 8 段（HULY-02）
+- 追加 8 个 `HULY_*` 占位变量：`HULY_VERSION` / `HULY_URL` / `HULY_ACCOUNTS_URL` / `HULY_WORKSPACE` / `HULY_SERVER_SECRET` / `HULY_BRIDGE_TOKEN` / `HULY_MINIO_USER` / `HULY_MINIO_PASSWORD`（全部 `changeme_*` 占位）
+
+#### Added — 静态校验集成测试
+- `backend/tests/integration/test_huly_compose_profiles.py`（11 个测试，全 PASS）：
+  - YAML 合法 + 23 service 完整性
+  - profile 标签（huly-stack / huly / 现有 service 无污染）
+  - .env.example 含 compose 引用的全部 `${HULY_*}` 变量
+  - 敏感凭证占位用 `changeme_*`
+  - 关键 service 有 healthcheck
+  - 4 个 huly 卷 + offboarding-net + 默认 profile 排除 huly-*
+
+#### Infrastructure
+- 默认 `docker compose up -d` 启 6 个现有 service（postgres/redis/flow-api/mock-archive/outline/nginx），0 影响
+- `docker compose --profile huly-stack up -d` 启完整 Huly（15 + 6 = 21 service）
+- `docker compose --profile huly --profile huly-stack up -d` 同时启 sidecar + Huly stack
+- pre-commit hooks（gitleaks / ruff / ruff-format / yaml check）全部 PASS
+
+#### Discovered/Planned
+- Plan 04 实现 huly-bridge sidecar（Dockerfile + src/）— 端口 7777 + BRIDGE_TOKEN + container_name `offboarding-huly-bridge` 契约已固化
+- Plan 05+ 通过 `huly-bridge:7777` 调 Huly Account / Transactor API
+
+---
+
 ### Phase 8 Plan 01 (2026-05-17) — IM 抽象层 + DocProvider/IMProvider 完善 + HandlerRegistry (ABS-01..05)
 
 #### Added — IM 抽象层基座（ABS-01 / ABS-02 / ABS-04）
