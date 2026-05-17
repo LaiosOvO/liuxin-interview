@@ -135,3 +135,54 @@ class OutlineProvider:
             )
         except OutlineError:
             return None
+
+    # ------------------------------------------------------------------ #
+    # ABS-03 — 完整生命周期方法（Phase 08-01 新增）
+    # ------------------------------------------------------------------ #
+
+    async def delete_document(self, doc_id: str) -> None:
+        """删除单篇文档（移入 Outline 垃圾箱）。"""
+        client = self._get_client()
+        try:
+            await client.delete_document(doc_id)
+        except OutlineError as e:
+            raise ProviderError(f"outline delete_document: {e}") from e
+
+    async def list_documents_in_collection(
+        self,
+        *,
+        collection_id: str,
+        limit: int = 50,
+    ) -> list[DocInfo]:
+        """列出指定 collection 下的所有文档。"""
+        client = self._get_client()
+        try:
+            raw = await client.list_documents_in_collection(
+                collection_id=collection_id,
+                limit=limit,
+            )
+        except OutlineError as e:
+            raise ProviderError(f"outline list_documents_in_collection: {e}") from e
+        settings = get_settings()
+        return [
+            DocInfo(
+                id=d.get("id", ""),
+                url=settings.outline_url.rstrip("/") + d.get("url", ""),
+                title=d.get("title", ""),
+                provider=self.name,
+            )
+            for d in raw
+        ]
+
+    async def delete_collection(self, collection_id: str) -> None:
+        """删除整个 collection（连带下面所有文档）。
+
+        ⚠️ 危险：Outline 服务端会移走所有文档；本方法不做二次确认，
+        调用方须自己确保已通过 UI 提醒或审计 hook。
+        """
+        client = self._get_client()
+        logger.warning("[outline-provider] 即将删除 collection %s（含所有文档）", collection_id)
+        try:
+            await client.delete_collection(collection_id)
+        except OutlineError as e:
+            raise ProviderError(f"outline delete_collection: {e}") from e

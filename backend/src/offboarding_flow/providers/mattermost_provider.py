@@ -23,6 +23,16 @@ class MattermostProvider:
         self._base_url = self._settings.mattermost_url.rstrip("/")
         self._bot_token = self._settings.mattermost_bot_token
         self._bot_user_id = self._settings.mattermost_bot_user_id
+        # ABS-04 — Phase 08-01 引入；Mattermost listener 走 workers/mattermost_listener.py
+        # 这里 Provider 仅用于 REST 推送 / 查询，不接收平台推送，register hook 是 no-op
+        self._dispatch = None
+
+    def register_command_listener(self, dispatch) -> None:
+        """ABS-04 — MattermostProvider 仅做 REST 客户端，长连接 listener 在
+        workers/mattermost_listener.py 单独承担；此 hook 仅保留 dispatch 引用，
+        本 Provider 不主动 invoke。
+        """
+        self._dispatch = dispatch
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(

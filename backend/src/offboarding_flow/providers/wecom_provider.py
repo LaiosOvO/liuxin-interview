@@ -33,9 +33,23 @@ class WeComDocProvider:
     async def get_document(self, doc_id):
         return None
 
+    # ABS-03 — Phase 08-01 新增的 3 个生命周期方法（stub）
+    async def delete_document(self, doc_id):
+        raise ProviderError("WeCom delete_document not implemented yet (stub)")
+
+    async def list_documents_in_collection(self, *, collection_id, limit=50):
+        return []
+
+    async def delete_collection(self, collection_id):
+        raise ProviderError("WeCom delete_collection not implemented yet (stub)")
+
 
 class WeComIMProvider:
     name = "wecom"
+
+    def __init__(self) -> None:
+        # ABS-04 — Phase 08-01 引入；stub 实现不需要 listener，但保留属性
+        self._dispatch = None
 
     async def post_to_channel(self, channel_id, markdown):
         raise ProviderError("WeCom IM provider not implemented yet (stub)")
@@ -51,3 +65,7 @@ class WeComIMProvider:
 
     async def resolve_username(self, username):
         return None
+
+    def register_command_listener(self, dispatch) -> None:
+        """ABS-04 — stub provider 不接收平台推送，仅保存引用供未来切换。"""
+        self._dispatch = dispatch

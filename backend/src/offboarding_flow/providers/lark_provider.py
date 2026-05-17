@@ -232,11 +232,99 @@ class LarkDocsProvider(_LarkBase):
             provider=self.name,
         )
 
+    # ------------------------------------------------------------------ #
+    # ABS-03 — 完整生命周期方法（Phase 08-01 新增）
+    # ------------------------------------------------------------------ #
+
+    async def delete_document(self, doc_id: str) -> None:
+        """删除飞书 docx 文档（移入回收站）。
+
+        飞书 API: DELETE /open-apis/drive/v1/files/{file_token}?type=docx
+        - 文档不存在或已删 → 返回 ProviderError 时降级为 log warning + 不抛
+        """
+        try:
+            await self._request(
+                "DELETE",
+                f"/open-apis/drive/v1/files/{doc_id}",
+                params={"type": "docx"},
+            )
+            logger.info("[lark] docx deleted id=%s", doc_id)
+        except ProviderError as e:
+            # 飞书 99991663 = file not found；其他错误重抛
+            msg = str(e).lower()
+            if "not found" in msg or "99991663" in msg or "404" in msg:
+                logger.info("[lark] docx %s 已不存在，删除视为成功", doc_id)
+                return
+            raise
+
+    async def list_documents_in_collection(
+        self,
+        *,
+        collection_id: str,
+        limit: int = 50,
+    ) -> list[DocInfo]:
+        """列出指定 folder 下的所有 docx 文档（飞书 folder 即 collection）。"""
+        try:
+            data = await self._request(
+                "GET",
+                "/open-apis/drive/v1/files",
+                params={
+                    "folder_token": collection_id,
+                    "page_size": min(limit, 50),
+                },
+            )
+        except ProviderError as e:
+            logger.warning("[lark] list_documents_in_collection: %s", e)
+            return []
+        return [
+            DocInfo(
+                id=f.get("token", ""),
+                url=f.get("url", ""),
+                title=f.get("name", ""),
+                provider=self.name,
+            )
+            for f in data.get("files", [])
+            if f.get("type") == "docx"
+        ]
+
+    async def delete_collection(self, collection_id: str) -> None:
+        """删除飞书 folder（连带下面所有文档移到回收站）。
+
+        飞书 API: DELETE /open-apis/drive/v1/files/{folder_token}?type=folder
+        ⚠️ 危险操作 — 调用方须有审计追踪。
+        """
+        logger.warning("[lark] 即将删除 folder %s（含所有 docx 文档）", collection_id)
+        try:
+            await self._request(
+                "DELETE",
+                f"/open-apis/drive/v1/files/{collection_id}",
+                params={"type": "folder"},
+            )
+            logger.info("[lark] folder deleted id=%s", collection_id)
+        except ProviderError as e:
+            msg = str(e).lower()
+            if "not found" in msg or "99991663" in msg or "404" in msg:
+                logger.info("[lark] folder %s 已不存在，删除视为成功", collection_id)
+                return
+            raise
+
 
 class LarkIMProvider(_LarkBase):
     """飞书 IM Provider — 群消息 / 私聊 / @mention。"""
 
     name = "lark"
+
+    def __init__(self) -> None:
+        super().__init__()
+        # ABS-04 — Phase 08-01 引入；当前 Lark IM 走 webhook 模式，listener 反向订阅
+        # 由独立的 huly_listener / lark_listener 承担；本 Provider 暂保留属性 + no-op hook
+        self._dispatch = None
+
+    def register_command_listener(self, dispatch) -> None:
+        """ABS-04 — Lark Provider 仅做 REST 推送 / 查询；listener 反向订阅
+        由 future LarkListener 承担。
+        """
+        self._dispatch = dispatch
 
     async def post_to_channel(self, channel_id: str, markdown: str) -> None:
         """发到群（chat_id 用飞书 chat open_id）。markdown 转富文本卡片。"""

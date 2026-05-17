@@ -114,6 +114,48 @@ class OutlineClient:
         data = await self._post("/documents.search", {"query": query, "limit": limit})
         return data if isinstance(data, list) else data.get("results", [])
 
+    async def delete_document(self, document_id: str) -> None:
+        """删除文档（移入垃圾箱）。
+
+        Outline API: POST /documents.delete {"id": ...}
+        - 文档不存在 → 200 + ok:false；当作幂等成功（不抛）
+        - 其他失败 → OutlineError
+        """
+        async with self._client() as c:
+            try:
+                resp = await c.post("/documents.delete", json={"id": document_id})
+            except httpx.HTTPError as e:
+                raise OutlineError(f"documents.delete: {e}") from e
+        if resp.status_code == 404:
+            # 文档已不存在 → 幂等成功
+            logger.info("[outline] doc %s 已不存在，删除视为成功", document_id)
+            return
+        if resp.status_code >= 400:
+            raise OutlineError(f"documents.delete HTTP {resp.status_code}: {resp.text[:200]}")
+        logger.info("[outline] doc deleted id=%s", document_id)
+
+    async def list_documents_in_collection(
+        self,
+        *,
+        collection_id: str,
+        limit: int = 50,
+        sort: str = "updatedAt",
+    ) -> list[dict[str, Any]]:
+        """列出指定 collection 下的所有文档（用 documents.list）。
+
+        Outline API: POST /documents.list {"collectionId": ..., "limit": ..., "sort": ...}
+        """
+        body: dict[str, Any] = {
+            "collectionId": collection_id,
+            "limit": min(limit, 100),  # Outline 单次最多 100
+            "sort": sort,
+        }
+        async with self._client() as c:
+            resp = await c.post("/documents.list", json=body)
+        if resp.status_code >= 400:
+            raise OutlineError(f"documents.list HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.json().get("data", [])
+
     # ------------------------------------------------------------------ #
     # users
     # ------------------------------------------------------------------ #
@@ -202,6 +244,27 @@ class OutlineClient:
             if col.get("name") == name:
                 return col
         return await self.create_collection(name=name, description=f"自动创建: {name}")
+
+    async def delete_collection(self, collection_id: str) -> None:
+        """删除 collection（及其下所有文档移入垃圾箱）。
+
+        Outline API: POST /collections.delete {"id": ...}
+        - 不存在 → 404 视为幂等成功
+        - 其他失败 → OutlineError
+
+        ⚠️ 危险操作：连带删除 collection 下所有文档。调用方应记录审计日志。
+        """
+        async with self._client() as c:
+            try:
+                resp = await c.post("/collections.delete", json={"id": collection_id})
+            except httpx.HTTPError as e:
+                raise OutlineError(f"collections.delete: {e}") from e
+        if resp.status_code == 404:
+            logger.info("[outline] collection %s 已不存在，删除视为成功", collection_id)
+            return
+        if resp.status_code >= 400:
+            raise OutlineError(f"collections.delete HTTP {resp.status_code}: {resp.text[:200]}")
+        logger.warning("[outline] collection deleted id=%s (含所有文档)", collection_id)
 
 
 # ---------------------------------------------------------------------------

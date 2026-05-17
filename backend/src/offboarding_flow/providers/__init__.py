@@ -5,17 +5,23 @@
 """
 
 from .base import (
+    CollectionInfo,
+    DispatchFn,
     DocInfo,
     DocProvider,
     IMProvider,
+    ProviderError,
     UserInfo,
 )
 from .factory import get_doc_provider, get_im_provider, reset_providers
 
 __all__ = [
+    "CollectionInfo",
+    "DispatchFn",
     "DocInfo",
     "DocProvider",
     "IMProvider",
+    "ProviderError",
     "UserInfo",
     "get_doc_provider",
     "get_im_provider",
