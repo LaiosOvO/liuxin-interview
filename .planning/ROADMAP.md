@@ -29,8 +29,8 @@
 | 8-01 | IM 抽象层 + DocProvider/IMProvider 完善 + HandlerRegistry | ABS-01..05 | ✓ Complete (5 commits b27eb2d..c358edc) |
 | 8-02 | ABS-06 节点元数据外提到 config/nodes.yaml | ABS-06 | ○ Pending |
 | 8-03 | Huly 镜像 pull 脚本 + docker-compose huly-stack/huly profile + .env.example HULY_* + 11 集成测试 | HULY-01..02 | ✓ Complete (2 commits 51183c6..fa8b427) |
-| 8-04 | huly-bridge sidecar 实现（backend/sidecars/huly-bridge/ Dockerfile + src/） | HULY-03 | ○ Pending |
-| 8-05 | HulyDocProvider 实现（通过 huly-bridge:7777 调 Huly Account API） | HULY-04 | ○ Pending |
+| 8-04 | huly-bridge sidecar 骨架（backend/sidecars/huly-bridge/ — Express + tsx + Dockerfile + service token + /healthz + 52 单测） | HULY-03..04 | ✓ Complete (5 commits d070cea..a9992a3) |
+| 8-05 | huly-bridge 7 业务路由实现 + HulyDocProvider/HulyIMProvider Python 端 | HULY-05..06 | ○ Pending |
 | 8-06 | HulyListener / HulyIMProvider + Huly bot 命令 + seed 13 用户 + E2E | HULY-05 | ○ Pending |
 | 8-07 | 流程节点 MCP server | MCP-01..02 | ○ Pending |
 

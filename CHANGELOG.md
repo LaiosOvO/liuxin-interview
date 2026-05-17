@@ -11,6 +11,70 @@
 
 ## [Unreleased]
 
+### Phase 8 Plan 04 (2026-05-17) — huly-bridge Node sidecar 骨架 (HULY-03..04)
+
+#### Added — Node + TypeScript + Express sidecar 完整骨架（HULY-03）
+- `backend/sidecars/huly-bridge/` 完整 Node 项目（17 文件 / ~1700 LOC）
+  - `package.json`：9 deps（express + @hcengineering/* v0.7.423 × 7）+ 9 devDeps + 6 scripts；Node 22+
+  - `tsconfig.json`：ES2022 / ESNext / Bundler / strict
+  - `Dockerfile`：Node 22-alpine + tsx 运行时（无 tsc 编译步骤）+ EXPOSE 7777 + healthcheck
+  - `README.md`：中文 runbook + 8 endpoint 清单 + BRIDGE_TOKEN 鉴权说明 + npm 兜底路径
+- 核心源码模块（6 文件）：
+  - `src/types.ts`：BridgeConfig / ApiResponse / HealthzResponse 共享类型（immutable）
+  - `src/config.ts`：loadConfig fail-fast 5 必需 env + summarizeConfig 脱敏
+  - `src/auth.ts`：initAuth setMetadata + serviceToken() —— **HULY-04 service token 模式**
+  - `src/middleware.ts`：bridgeAuth X-Bridge-Token + notFoundHandler + errorHandler + requestLogger
+  - `src/index.ts`：createApp + main + 后台 connect Huly + SIGTERM 优雅关停 + 7 业务路由 stub
+  - `src/hcengineering-shims.d.ts`：@hcengineering/* 类型 shim（上游 v0.7.423 缺 .d.ts 临时方案）
+
+#### Added — Huly service token 生成（HULY-04，已源码验证）
+- `generateToken(systemAccountUuid, undefined, { service: 'offboarding-bot' })` 模式实现
+  （RESEARCH §3.3.1，参考 `hcengineering/platform:services/telegram-bot/pod-telegram-bot/src/utils.ts`）
+- `initAuth(config)` 调 4 次 setMetadata：serverToken.Secret + Service + serverClient.Endpoint + UserAgent
+- `serviceToken()` 返回非空 JWT；CJS interop 兼容（default import + lazy lookup）
+
+#### Added — /healthz endpoint + 业务路由 stub
+- GET `/healthz`：返回 `{ok, huly_connected, version, uptime, last_connect_attempt, last_error}`
+  - 公开访问（白名单不需 X-Bridge-Token，docker healthcheck 用）
+- POST `/api/im/{send-dm, send-channel}` + GET `/api/im/list-channels` → 501 NOT_IMPLEMENTED（Plan 05 实现）
+- POST `/api/doc/{create-folder, create-doc, update-doc, link-collaborator}` → 501（Plan 05 实现）
+
+#### Added — vitest 单测套件（52 tests PASS）
+- `vitest.config.ts`：node 环境 + v8 coverage
+- `tests/config.test.ts`（17 tests）：env 缺失 / immutable / PORT 校验 / LOG_LEVEL / 默认值 / 脱敏
+- `tests/auth.test.ts`（10 tests）：initAuth setMetadata + serviceToken 契约（systemAccountUuid / undefined / extra.service）
+- `tests/middleware.test.ts`（11 tests）：bridgeAuth 白名单 / 401 缺 token / 401 错 token / 长度不等 + 404 + 500
+- `tests/healthz.test.ts`（14 tests）：supertest 集成测 /healthz + 业务路由 stub + 401 + 404 全覆盖
+- **Coverage：auth.ts 100% / config.ts 100% / middleware.ts 86% / index.ts 49%（业务路由 + main 留 Plan 05 集成测覆盖）**
+
+#### Fixed — CJS/ESM interop（Rule 1 Bug fix）
+- `@hcengineering/*` 是 esbuild CJS 输出，Node 22 ESM 模式直接 `import { generateToken }` 报 SyntaxError "does not provide an export"
+- 改成 `import xxx from '...'` default import + lazy getter 同时查 default 与顶级两种路径（兼容 vitest mock 与真运行时）
+- 影响：`src/auth.ts` / `src/index.ts` / `tests/auth.test.ts` / `tests/healthz.test.ts` / `src/hcengineering-shims.d.ts`
+
+#### Fixed — npm 公网包版本不全（Rule 3 Blocking）
+- `@hcengineering/document@0.7.423` 不存在于 npm 公网（只有 0.7.0）— 从 package.json 移除；Plan 05 改用 chunter.Card 或 docker tarball 兜底
+- `@hcengineering/*` v0.7.423 缺 `.d.ts` — 写 `src/hcengineering-shims.d.ts` 临时声明用到的接口子集；上游修复后可删
+
+#### Infrastructure — Docker build + 真启动 smoke 验证
+- `docker build -t huly-bridge:test .` → image OK（410MB）
+- `docker run` + 假 HULY_URL → 容器 `Up (healthy)`
+- 端到端 curl 验证：
+  - `GET /healthz` → 200 + `huly_connected:false` + `last_error:"fetch failed"`（fail-soft 路径已验证）
+  - `POST /api/im/send-dm` 无 token → 401 BRIDGE_TOKEN_MISSING
+  - `POST /api/im/send-dm` 错 token → 401 BRIDGE_TOKEN_INVALID
+  - `POST /api/im/send-dm` 正确 token → 501 NOT_IMPLEMENTED
+- `npx tsc --noEmit` → 0 error
+- `npm test` → 52/52 PASS
+
+#### Discovered/Planned
+- Plan 05 实现 7 个业务路由真实 Huly TS SDK 调用（替换 notImplemented stub）
+- Plan 06 反向 listener — sidecar 监听 Huly 消息推 backend `POST /api/internal/huly/event`（BACKEND_URL env 已就位）
+- Plan 07 通过 huly-bridge:7777 batch seed 13 个 user 到 Huly workspace `laios`
+- @hcengineering/document 0.7.423 npm publish 缺失需上游补；或本地从 huly-selfhost docker tarball 兜底
+
+---
+
 ### Phase 8 Plan 03 (2026-05-17) — Huly 镜像 + docker-compose huly-stack/huly profile (HULY-01..02)
 
 #### Added — Huly 镜像一键拉取脚本（HULY-01）

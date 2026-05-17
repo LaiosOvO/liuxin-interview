@@ -181,8 +181,8 @@
 | ABS-06 | Phase 8 (Plan 02) | Pending |
 | HULY-01 | Phase 8 (Plan 03) | Complete |
 | HULY-02 | Phase 8 (Plan 03) | Complete |
-| HULY-03 | Phase 8 (Plan 04) | Pending |
-| HULY-04 | Phase 8 (Plan 05) | Pending |
+| HULY-03 | Phase 8 (Plan 04) | Complete |
+| HULY-04 | Phase 8 (Plan 05) | Complete |
 | HULY-05 | Phase 8 (Plan 06) | Pending |
 | MCP-01 | Phase 8 (Plan 07) | Pending |
 | MCP-02 | Phase 8 (Plan 07) | Pending |
