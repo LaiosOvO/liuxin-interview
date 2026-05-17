@@ -129,31 +129,77 @@ for task in extract.tasks:
 
 ---
 
-## 5. 当前阻塞 — Huly v0.7 social-id 模型
+## 5. ✅ social-id 阻塞已修复 — sidecar 真连上 Huly transactor
 
-sidecar 启动后 `connect()` Huly 报：
+### 5.1 根因
 
+sidecar 原 connect 流程：
+```typescript
+const token = serviceToken()  // generateToken(systemAccountUuid, undefined, {service:'offboarding-bot'})
+await connect(hulyUrl, { token, workspace })
+// → "No active social ids provided"
 ```
-[huly-bridge] ⚠ 连 Huly 失败（healthz 会反映）: No active social ids provided
+
+`systemAccountUuid` 是 SDK 内置常量，但**在演示 Huly DB 里没有对应账号**，所以没 social id。
+
+### 5.2 修法（已实施 — `src/index.ts` 改 ~20 行）
+
+改用 admin email/password login 拿真账号 token（admin 已有 2 个 social id：email + huly）：
+
+```typescript
+// 用 admin login 拿 token（避开 systemAccountUuid 无 social id 问题）
+const loginResp = await fetch(`${hulyAccountsUrl}`, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    method: 'login',
+    params: { email: config.adminEmail, password: config.adminPassword },
+  }),
+})
+const token = loginResp.result.token
+await connect(hulyUrl, { token, workspace })  // ✓ 成功
 ```
 
-`/healthz` 返回：
+### 5.3 还修了 Node 20 WebSocket polyfill
+
+Node 20 没原生 `globalThis.WebSocket`（Node 22 才有），SDK 需要：
+```typescript
+import WebSocketImpl from 'ws'
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocketImpl as any
+}
+```
+package.json 加 `"ws": "^8.18.0"` 依赖。
+
+### 5.4 验证证据
+
+`/healthz` 真返回 `huly_connected: true`：
+
 ```json
 {
   "ok": true,
-  "huly_connected": false,
-  "last_error": "No active social ids provided"
+  "huly_connected": true,
+  "version": "0.1.0",
+  "uptime": 13,
+  "last_connect_attempt": "2026-05-17T15:59:58.931Z",
+  "last_error": null
 }
 ```
 
-**原因**：Huly v0.7 改了认证模型 — 账号必须先有 `socialId`（社交身份对接）才能调 transactor 写数据。admin 账号目前没 social id。
+sidecar logs：
 
-**修法**（任一）：
-- A. 通过 Huly UI 给 admin 添加 social id（Settings → Profile → Social）
-- B. sidecar 加 `accountClient.addSocialIdToAccount({type:'email', value:'1624456575+admin@qq.com'})` 启动期自动 ensure
-- C. 改用普通 user account 调 sidecar（user 已有 email social id by default）
+```
+[huly-bridge] 用 admin login (1624456575+admin@qq.com) 拿 token
+[huly-bridge] ✓ 已连上 Huly transactor: http://192.168.2.44:8087 (workspace=laios)
+[huly-bridge:listener] 启动 chat 轮询（间隔 2000ms / 死循环防护 botAccount=1749089e...）
+[huly-bridge] chat 反向 listener 已启动
+```
 
-预估修复 5-30 min。修后 sidecar `huly_connected: true`，IM / Doc 路由全功能。
+证据文件保存在：
+- [`docs/e2e-screenshots-huly-2026-05-17/healthz-evidence.json`](e2e-screenshots-huly-2026-05-17/healthz-evidence.json)
+- [`docs/e2e-screenshots-huly-2026-05-17/sidecar-logs-evidence.txt`](e2e-screenshots-huly-2026-05-17/sidecar-logs-evidence.txt)
+
+**结论**：sidecar 与 Huly 已真打通（transactor connection + chat listener 都跑）。剩余 doc 路由的 `Cannot find package @hcengineering/document` 是 npm 公网无包问题，5-30 min 用 `chunter.Card` 兜底即可让 handover doc 真出现在 Huly。
 
 ---
 

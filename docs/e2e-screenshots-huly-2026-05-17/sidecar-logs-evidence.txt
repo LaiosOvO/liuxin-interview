@@ -1,0 +1,8 @@
+[huly-bridge] 启动配置: { ... adminEmail: '1624456575+admin@qq.com', ... }
+[huly-bridge] Huly SDK metadata 已初始化
+[huly-bridge:admin] 已 mount admin API（双重鉴权 BRIDGE_TOKEN + ADMIN_TOKEN）
+[huly-bridge] 用 admin login (1624456575+admin@qq.com) 拿 token (避开 systemAccountUuid 无 social id 问题)
+[huly-bridge] HTTP server listening on :7777
+[huly-bridge] ✓ 已连上 Huly transactor: http://192.168.2.44:8087 (workspace=laios)
+[huly-bridge:listener] 启动 chat 轮询（间隔 2000ms / 死循环防护 botAccount=1749089e...）
+[huly-bridge] chat 反向 listener 已启动

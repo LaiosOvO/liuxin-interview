@@ -17,6 +17,14 @@
  * - 业务路由（IM / Doc）在本 plan 仅返回 501，Plan 05 实现
  */
 
+// Node 20 没原生 globalThis.WebSocket（Node 22 才有）— @hcengineering/api-client 用 WS 连
+// transactor，需要 polyfill 全局 WebSocket
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import WebSocketImpl from 'ws'
+if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === 'undefined') {
+  ;(globalThis as { WebSocket?: unknown }).WebSocket = WebSocketImpl as unknown
+}
+
 // Huly api-client 同样是 CJS — lazy import 避免启动期 ESM 解析问题
 import apiClientModule from '@hcengineering/api-client'
 import express, { type Express, type Request, type Response } from 'express'
@@ -230,7 +238,29 @@ export async function connectHulyInBackground(
     if (!_isAuthInitialized()) {
       initAuth(config)
     }
-    const token = serviceToken()
+
+    // Huly v0.7 social-id 修正：systemAccountUuid 在演示部署里没建 social id
+    // → 改用 admin email/password login 拿真账号 token（admin 已有 email social id）
+    let token: string
+    if (config.adminEmail && config.adminPassword) {
+      console.log(`[huly-bridge] 用 admin login (${config.adminEmail}) 拿 token (避开 systemAccountUuid 无 social id 问题)`)
+      const loginResp = await fetch(`${config.hulyAccountsUrl}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'login',
+          params: { email: config.adminEmail, password: config.adminPassword },
+        }),
+      })
+      const loginData = await loginResp.json() as { result?: { token: string }, error?: unknown }
+      if (!loginData.result?.token) {
+        throw new Error(`admin login 失败: ${JSON.stringify(loginData.error ?? loginData)}`)
+      }
+      token = loginData.result.token
+    } else {
+      // 回退到 serviceToken (要求 systemAccountUuid 已建 social id)
+      token = serviceToken()
+    }
 
     const connect = getConnect()
     const client = await connect(config.hulyUrl, {
