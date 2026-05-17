@@ -72,15 +72,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[lifespan] outbox worker start failed (will continue): %s", e)
 
-    # Mattermost WebSocket listener — 让 bot 在线 + 支持 DM（用户要求）
+    # IM listener — 实现 IMListener Protocol；ABS-04 注册统一 dispatch（im.dispatcher.dispatch_message）
+    # 让 bot 在线 + 支持 DM（用户要求）
     mm_listener = None
     try:
+        from offboarding_flow.im.dispatcher import dispatch_message
         from offboarding_flow.workers.mattermost_listener import MattermostListener
 
         mm_listener = MattermostListener(settings)
+        # ABS-04：listener 收到合法消息时调统一 dispatch（与未来 Huly listener 共用）
+        mm_listener.register_command_listener(dispatch_message)
         await mm_listener.start()
         app.state.mm_listener = mm_listener
-        logger.info("[lifespan] mattermost listener started (bot online via WebSocket)")
+        logger.info(
+            "[lifespan] mattermost listener started (bot online via WebSocket, dispatch=im.dispatcher.dispatch_message)"
+        )
     except Exception as e:
         logger.warning("[lifespan] mattermost listener start failed (will continue): %s", e)
 

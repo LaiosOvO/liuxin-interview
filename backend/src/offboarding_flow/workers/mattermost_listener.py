@@ -43,16 +43,8 @@ from mattermostautodriver import AsyncDriver  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 from offboarding_flow.config import Settings  # noqa: E402
-from offboarding_flow.services.bot_command_parser import (  # noqa: E402
-    BotCommandParseError,
-    parse_command,
-)
-from offboarding_flow.services.bot_service import (  # noqa: E402
-    BotFlowNotFoundError,
-    BotInvocationContext,
-    BotPermissionError,
-    BotService,
-)
+from offboarding_flow.im.context import IMHelpers  # noqa: E402
+from offboarding_flow.im.protocol import DispatchFn  # noqa: E402
 from offboarding_flow.state_store.models import User  # noqa: E402
 from offboarding_flow.state_store.session import new_session  # noqa: E402
 
@@ -60,13 +52,37 @@ logger = logging.getLogger(__name__)
 
 
 class MattermostListener:
-    """Mattermost WebSocket 长连接 listener — 让 bot 在线 + DM 工作。"""
+    """Mattermost WebSocket 长连接 listener — 让 bot 在线 + DM 工作。
+
+    实现 `offboarding_flow.im.protocol.IMListener` Protocol（ABS-01 / ABS-04）：
+    - `name = "mattermost"` 标识平台
+    - `async start / stop`            生命周期
+    - `register_command_listener`     反向注入 dispatch（统一 dispatch_message）
+
+    与 Plan 08-01 前的版本相比：
+    - 行 175-262 的 dispatch 业务编排已搬到 `im.dispatcher.dispatch_message`
+    - listener 现在仅负责：解 WS event → 触发条件过滤 → 构造 IMHelpers → 转交 dispatch
+    """
+
+    # IMListener Protocol — 平台名（"mattermost"）
+    name: str = "mattermost"
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.driver: AsyncDriver | None = None
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        # 注入的统一 dispatch（由 main.py lifespan 通过 register_command_listener 设置）
+        self._dispatch: DispatchFn | None = None
+
+    def register_command_listener(self, dispatch: DispatchFn) -> None:
+        """ABS-04 反向订阅 hook — 让 listener 收到合法消息时调统一 dispatch。
+
+        通常由 FastAPI lifespan 在创建 listener 后立即调用：
+            mm_listener.register_command_listener(dispatch_message)
+        """
+        self._dispatch = dispatch
+        logger.info("[mm_listener] dispatch listener registered: %s", dispatch.__name__)
 
     async def start(self) -> None:
         """启动 WebSocket listener（lifespan 调）。"""
@@ -172,94 +188,30 @@ class MattermostListener:
             message[:80],
         )
 
-        try:
-            cmd = parse_command(message)
-        except BotCommandParseError as e:
-            # LLM intent router 兜底：白名单失败 → 自然语言意图分类 / 通用 AI 问答
-            from offboarding_flow.services.bot_intent_router import BotIntentRouter
-
-            try:
-                # 先查 sender role（与下面 dispatch 一致）
-                async with new_session() as s2:
-                    sender_role = await self._resolve_user_role(s2, sender_name)
-                router = BotIntentRouter()
-                ir = await router.classify(
-                    message=message,
-                    sender_username=sender_name,
-                    sender_role=sender_role,
-                )
-                logger.info(
-                    "[mm_listener] intent=%s conf=%.2f args=%s",
-                    ir.intent,
-                    ir.confidence,
-                    list(ir.args.keys()),
-                )
-                fallback_cmd = router.intent_to_bot_command(ir, sender_name)
-                if fallback_cmd is None:
-                    # ai_qa 路径 — 直接发 LLM 回答
-                    ai_text = ir.ai_reply or (
-                        "🤖 我没听懂你的意思。可以试试：\n"
-                        "- `@offboarding-bot help` 看命令清单\n"
-                        "- 直接发 `我要离职` 自助起流程\n"
-                        "- 粘贴会议纪要让我整理"
-                    )
-                    await self._post_reply(channel_id, ai_text)
-                    return
-                cmd = fallback_cmd
-            except Exception as router_exc:
-                logger.warning("[mm_listener] intent router 失败: %s", router_exc)
-                await self._post_reply(
-                    channel_id,
-                    f"⚠️ {e}\n输入 `@offboarding-bot help` 查看可用命令",
-                )
-                return
-
-        # 查发送者业务 role（与 webhook 一致）
-        async with new_session() as session:
-            user_role = await self._resolve_user_role(session, sender_name)
-            ctx = BotInvocationContext(
-                user_name=sender_name,
-                user_id=post_user_id,
-                channel_id=channel_id,
-                user_role=user_role,
-                mm_helpers={
-                    "post_channel": self._post_reply,
-                    "send_dm": self._send_dm_by_username,
-                    "ensure_in_channel": self._ensure_user_in_channel,
-                },
+        # ABS-02：把"消息 → 业务命令"完全交给 im.dispatcher.dispatch_message
+        # listener 只负责 WS event 拆解 + 触发过滤 + 构造平台无关的 IMHelpers
+        if self._dispatch is None:
+            logger.warning(
+                "[mm_listener] dispatch 未注册（main.py lifespan 未调 register_command_listener），丢弃消息：%s",
+                message[:80],
             )
-            # bot_service 需要 flow_service，复用 deps 构造
-            from offboarding_flow.flow_engine.graph import get_graph
-            from offboarding_flow.notifications.outbox_repository import OutboxRepository
-            from offboarding_flow.services import FlowService, NotificationService
-            from offboarding_flow.state_store.repositories import (
-                ActionRepository,
-                FlowRepository,
-                NodeRepository,
-            )
+            return
 
-            flow_repo = FlowRepository(session)
-            node_repo = NodeRepository(session)
-            action_repo = ActionRepository(session)
-            outbox_repo = OutboxRepository(session)
-            notif = NotificationService(
-                session=session, outbox_repo=outbox_repo, settings=self.settings
-            )
-            flow_service = FlowService(
-                session, flow_repo, node_repo, action_repo, get_graph(), notification_service=notif
-            )
-            bot_service = BotService(session=session, flow_service=flow_service)
-            try:
-                reply = await bot_service.dispatch(cmd, ctx)
-            except BotPermissionError as e:
-                reply = f"🚫 {e}"
-            except BotFlowNotFoundError as e:
-                reply = f"⚠️ {e}"
-            except Exception as e:
-                logger.exception("[mm_listener] dispatch error: %s", e)
-                reply = "⚠️ 命令处理失败，请联系管理员"
-
-        await self._post_reply(channel_id, reply)
+        helpers = IMHelpers(
+            post_channel=self._post_reply,
+            send_dm=self._send_dm_by_username,
+            ensure_in_channel=self._ensure_user_in_channel,
+        )
+        await self._dispatch(
+            sender_username=sender_name,
+            user_id=post_user_id,
+            channel_id=channel_id,
+            channel_type=channel_type,
+            message=message,
+            im_helpers=helpers,
+            settings=self.settings,
+            session_factory=new_session,
+        )
 
     @staticmethod
     async def _resolve_user_role(session: Any, user_name: str) -> str | None:
