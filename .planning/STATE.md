@@ -5,15 +5,16 @@
 See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 **Core value:** 让"流程状态机"端到端可见且可驱动 — 一封邮件 → 一键登录 → 一段文本 + 一次决策 → 流程自动推进直到申请人最终确认
-**Current focus:** Phase 8 IM/Doc 全抽象 + Huly 接入 — Plan 04 (huly-bridge Node sidecar 骨架) **已完成**；下一步 Plan 05 业务路由实现
+**Current focus:** Phase 8 IM/Doc 全抽象 + Huly 接入 — Plan 06 (Huly seed + 部署 runbook) **已完成**；Phase 8B Huly 接入完整闭环；下一步 Plan 02（节点元数据外提）/ Plan 07（MCP server）
 
 ---
 
 ## Current Status
 
-**Stage:** Phase 8 Plan 05 完成 — sidecar IM/Doc 路由真实现 + listener 反向订阅 + Python provider/listener/route 全栈接通 + 73 测试 PASS（38 vitest + 35 pytest）+ 0 回归
+**Stage:** Phase 8 Plan 06 完成 — sidecar admin API（双 token 鉴权 + 走 admin login → createInvite → signUpJoin 避开 Pitfall #1）+ scripts/seed_huly_users.py（业务 DB 13 用户幂等同步）+ .env.example 完整 14 HULY_* 段 + README §9 八子段部署 runbook + Playwright E2E spec scaffold + 18 新测试全 PASS + 0 回归（HULY-08/09 2 REQ Complete）
 
 **Last completed:**
+- Phase 8 Plan 06: sidecar admin.ts + seed_huly_users.py + seed_huly_workspace.py + tests + README §9 runbook + E2E spec/报告 scaffold（3 commits a39ec41..5539cb8）— HULY-08/09 2 REQ Complete；Phase 8B Huly 接入实质闭环（仅 E2E 截图填补待真环境）
 - Phase 8 Plan 05: sidecar 3 模块（im.ts/doc.ts/listener.ts）+ Python 4 模块（HulyIMProvider/HulyDocProvider/HulyListener/api/internal_huly）+ factory + main.py 装配（3 commits 08534c9..2588243）— HULY-05/06/07 3 个 REQ Complete；IM_PROVIDER=huly DOC_PROVIDER=huly 一行切换可用
 - Phase 8 Plan 04: backend/sidecars/huly-bridge/ 完整 17 文件 + 52 vitest 单测 PASS + Dockerfile build + run + curl 全通（5 commits d070cea..a9992a3）— HULY-03/04 2 个 REQ Complete
 - Phase 8 Plan 03: scripts/pull_huly_images.sh + docker-compose.yml huly-stack/huly profile + .env.example HULY_* + 11 个集成测试（2 commits 51183c6..fa8b427）— HULY-01/02 2 个 REQ Complete
@@ -21,10 +22,10 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 - Phase 7+ (2026-05-17): 协作文档抽象 + 按员工分文件夹 + 生产级 DAG + 完整 E2E（commit 51b1062）
 - Phase 2-6 + 4.5: 全部历史 phase 已 merge main
 
-**Next action:** Phase 8 剩余 plan：
-- Plan 02 (ABS-06 节点元数据外提到 config/nodes.yaml)
-- Plan 06 (seed_huly_users + Plan 05 端到端 E2E — 通过 huly-bridge 写 13 用户，跑 browser E2E)
-- Plan 07 (MCP server + AI 节点增强 — 复用 HandlerRegistry 暴露 11 命令为 MCP tools)
+**Next action:** Phase 8 剩余 plan（无阻塞，可并行）：
+- Plan 02 (ABS-06 节点元数据外提到 config/nodes.yaml) — 与本 plan 无依赖
+- Plan 07 (MCP server + AI 节点增强 — 复用 HandlerRegistry 暴露 11 命令为 MCP tools) — 独立 wave，可立即开始
+- E2E 截图填补（orchestrator 启 huly-stack 后 8 步完成）— scaffold 已就绪
 
 ---
 
@@ -40,7 +41,7 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 5 | 前端 Next.js + 多角色 + 申请人时间线 + 逾期标签 | ✓ Complete |
 | 6 | 部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨 | ✓ Complete |
 | 7 | 协作文档抽象 + 按员工分文件夹 + 生产级 DAG + E2E | ✓ Complete |
-| 8 | IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化 | ◐ In Progress（Plan 01 ✓ + Plan 03 ✓ + Plan 04 ✓ + Plan 05 ✓；Plan 02 / 06 / 07 待执行）|
+| 8 | IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化 | ◐ In Progress（Plan 01 ✓ + Plan 03 ✓ + Plan 04 ✓ + Plan 05 ✓ + Plan 06 ✓；Phase 8B Huly 接入完整闭环；Plan 02 / 07 待执行）|
 
 详见 [.planning/ROADMAP.md](./ROADMAP.md)。
 
@@ -63,6 +64,23 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 2026-05-17 | execute-plan 08-03 --auto | Plan 03 (Huly Docker stack + profile) 完成 — 2 commits (51183c6 feat HULY-01 scripts + docs / fa8b427 feat HULY-02 compose + .env + 11 tests)；15 镜像清单（11 业务 + 4 基础设施，对齐上游 huly-selfhost v0.7.423）+ huly-stack/huly 两 profile + 默认 0 影响现有 6 service + 11 集成测试 PASS + gitleaks 通过；HULY-01/02 2 REQ Complete |
 | 2026-05-17 | execute-plan 08-04 --auto | Plan 04 (huly-bridge Node sidecar 骨架) 完成 — 5 commits (d070cea init / cd4085f core / 3b1bb6f entrypoint / 1a69525 tests / a9992a3 CJS fix)；17 文件 ~1700 LOC（Express + tsx + vitest + Dockerfile）+ Huly service token 生成（generateToken systemAccountUuid + service='offboarding-bot' 已源码验证 + Docker 真启动 smoke 验证）+ /healthz 反映 Huly 连接 + 7 业务路由 stub + 52 单测 PASS（auth+config 100% coverage）+ tsc 0 error；4 deviations 自动修复（document 包 npm 缺 0.7.423 / @hcengineering 缺 .d.ts / CJS ESM interop / 测试套件扩展）；HULY-03/04 2 REQ Complete |
 | 2026-05-17 | execute-plan 08-05 --auto | Plan 05 (Huly 业务接入层 + 反向通道) 完成 — 3 commits (08534c9 sidecar IM 路由 / 5114e45 sidecar Doc+listener+index / 2588243 Python provider+listener+route)；16 创建 + 7 修改 ~3400 LOC（sidecar im.ts/doc.ts/listener.ts + Python HulyIMProvider/HulyDocProvider/HulyListener/api/internal_huly + factory + main lifespan）；73 测试 PASS（38 vitest + 35 pytest）+ tsc 0 error + mypy 0 error + ruff 0 error；4 deviations 自动修复（healthz mock 补 / mypy 类型注解 / BRIDGE_TOKEN 空时主动 401 安全 / tests/unit/workers 包入口）；HULY-05/06/07 3 REQ Complete；IM_PROVIDER=huly DOC_PROVIDER=huly 一行切换可用 |
+| 2026-05-17 | execute-plan 08-06 --auto | Plan 06 (Huly seed + 部署 runbook + E2E scaffold) 完成 — 3 commits (a39ec41 sidecar admin + 配置 + workspace 探测 / c2c6b97 seed_huly_users + 集成测试 + README §9 / 5539cb8 Playwright E2E spec + 报告 scaffold)；8 创建 + 11 修改 ~2400 LOC（sidecar admin.ts + Python scripts + tests + E2E spec + 文档）；18 新测试 PASS（12 sidecar vitest admin + 6 backend pytest seed）+ tsc 0 + mypy 0 + ruff 0；4 deviations 自动处理（listener test 字段补 / httpx import 提升 / mypy stub ignore / auto-mode checkpoint scaffold）；HULY-08/09 2 REQ Complete；Phase 8B Huly 接入完整闭环（admin login → createInvite → signUpJoin 避开 Pitfall #1 + 双 token 鉴权 + .env 14 HULY_ 段 + README §9 八子段 runbook） |
+
+---
+
+## Plan 06 Decisions (2026-05-17)
+
+- **走 admin login + 普通 createInvite + anonymous signUpJoin 避开 Pitfall #1** — createInviteLink(autoJoin=true) 仅 service=schedule 放行（源码定位 verifyAllowedServices）；用 admin token 调普通 createInvite + 公开 signUpJoin 一步完成
+- **双 token 鉴权（BRIDGE_TOKEN + ADMIN_TOKEN）** — BRIDGE 是业务通用，ADMIN 是 admin 路由专用二级保护；防 LLM 通过 BRIDGE 调 admin 路由污染 Huly 账号数据；timing-attack 同 bridgeAuth 防御
+- **admin token 缓存 5 min TTL** — 平衡 login 开销与 token 时效；sidecar 重启即失效不需持久化
+- **幂等兜底 = signUpJoin 失败 → login fallback** — 检测 already exists keyword → login 拿 accountUuid → 200 skipped=true；login 失败 → 409 ACCOUNT_EXISTS_PASSWORD_MISMATCH 提示密码不一致
+- **_setTestAccountClientFactory 测试注入** — 不通过 vi.mock 替换整模块，注入 factory function；每用例独立 ctrl 更可读
+- **seed 集成测试 monkeypatch _load_users_from_db** — 主验证语义在 sidecar HTTP（不在 DB 读取）；CI 无 PG 时仍可跑（CLAUDE.md §2.3 折中），真 DB 路径在实际 seed + E2E 验证
+- **seed_huly_workspace 不强制 createWorkspace** — plan 明示避免范围爆炸；通过 sidecar /healthz 探测 huly_connected 即视为 workspace 就绪
+- **scripts/* 直接 import 而非 cli 模块** — 复用现有 scripts/seed_demo_data.py 模式；测试用 sys.path.insert + 模块名导入
+- **README §9 完整 runbook（8 子段）** — 配置 → 启 sidecar → seed → 切换 → 验证 → 回滚 → 安全建议；含真实命令 + dry-run + 重跑幂等示例
+- **Playwright spec isHulyUp() skip 防御** — 无 Huly 环境时自动 skip（不阻 CI）；真实跑通需 orchestrator 启 huly-stack 后手动执行
+- **E2E 截图填补由 orchestrator 后续** — Task 3 是 checkpoint:human-verify，auto 模式下完成 spec + 报告 + selector 适配点 + tool 调用链路图 scaffold，截图填补待真环境
 
 ---
 

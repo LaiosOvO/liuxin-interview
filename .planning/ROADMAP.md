@@ -31,7 +31,7 @@
 | 8-03 | Huly 镜像 pull 脚本 + docker-compose huly-stack/huly profile + .env.example HULY_* + 11 集成测试 | HULY-01..02 | ✓ Complete (2 commits 51183c6..fa8b427) |
 | 8-04 | huly-bridge sidecar 骨架（backend/sidecars/huly-bridge/ — Express + tsx + Dockerfile + service token + /healthz + 52 单测） | HULY-03..04 | ✓ Complete (5 commits d070cea..a9992a3) |
 | 8-05 | sidecar IM/Doc 业务路由真实现 + listener 反向订阅 + Python HulyIMProvider/HulyDocProvider + HulyListener + POST /api/internal/huly/event 路由 + factory + main lifespan + 73 测试 | HULY-05..07 | ✓ Complete (3 commits 08534c9..2588243) |
-| 8-06 | seed_huly_users + Plan 05 端到端 E2E（browser webapp-testing） | HULY-08 | ○ Pending |
+| 8-06 | sidecar admin API + scripts/seed_huly_users.py（业务 DB 13 用户幂等同步）+ .env.example 14 HULY_* 段 + README §9 八子段 runbook + Playwright E2E spec scaffold + 18 新测试 | HULY-08..09 | ✓ Complete (3 commits a39ec41..5539cb8) |
 | 8-07 | 流程节点 MCP server | MCP-01..02 | ○ Pending |
 
 **总计**：21-26 工作日（v0.4 增量），**45 个 v1 requirements 100% 覆盖**（v0.3 base 31 + v0.4 增 14：AI 增强 6 + Bot 入口 4 + 逾期 4，含加分项）。Phase 8 是 v0.5 新增（16 天）。
