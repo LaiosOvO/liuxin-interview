@@ -20,8 +20,9 @@
 | 4.5 | **加分项：自动动作节点演示（v0.4 新增）** | 新增 AutoNode 类型 + 演示 `auto_archive_to_storage` 节点调 mock HTTP API；docker-compose 加 mock-archive-service | AUTO-01/02/03 | 1 天 | 流程跑到 archive 前会自动调用 mock 服务把 node_results 写入文件；Mattermost 看到"自动执行"消息；演示话术清楚说明为什么其他节点不能自动化 | LOW（架构已支持，只需加节点类型 + mock service） |
 | 5 | **前端 Next.js + 多角色 + 申请人时间线 + 逾期标签** | 一键登录页 / 通用节点表单 / HR Dashboard（含 AI 报告按钮）/ 申请人最终确认页 / 逾期 + 证据缺失标签 | WEB-01/02/03/04/05, **TIMEOUT-04** | 4-5 天 | `pnpm build` 0 error；客户端路由刷新不 404；邮件点击→自动登录→看到对应角色页面→提交决策→流程推进；HR Dashboard 节点旁正确显示 `⚠️ 证据待补充` / `⏰ 已超时` 标签 | MEDIUM（Next.js 15 静态导出 + Tailwind v4 是 2026 新栈） |
 | 6 | **部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨** | Dockerfile + nginx.conf + entrypoint.sh + APScheduler timeout_scan + 演示 runbook | DEPLOY-02/03, NOTI-05 | 2-3 天 | `docker compose up -d` 在 192.168.2.44 一键启动；E2E 演示通过；"Looks Done But Isn't" Checklist 全过 | LOW（HIGH confidence + 完整模板） |
+| 8 | **IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化** | 8A IMListener + dispatch_message 抽象重构；8B Huly Provider（Node sidecar + service token）+ 同步业务 DB 13 用户到 Huly；8C 流程节点 MCP server | ABS-01..05, HULY-01..09, MCP-01..06 | 16 天 / 3-4 周 | `.env` 改 `IM_PROVIDER=huly` 业务代码零改动；it.charlie 在 Huly DM 说"我要离职"启流程；Claude Desktop 配 MCP 后能 `get_flow` 返回 DAG | MEDIUM（多语言栈：Node sidecar + Python provider；详见 [PRD-Phase-8.md](../PRD-Phase-8.md)） |
 
-**总计**：21-26 工作日（v0.4 增量），**45 个 v1 requirements 100% 覆盖**（v0.3 base 31 + v0.4 增 14：AI 增强 6 + Bot 入口 4 + 逾期 4，含加分项）。
+**总计**：21-26 工作日（v0.4 增量），**45 个 v1 requirements 100% 覆盖**（v0.3 base 31 + v0.4 增 14：AI 增强 6 + Bot 入口 4 + 逾期 4，含加分项）。Phase 8 是 v0.5 新增（16 天）。
 
 **面试评分点对齐**：评分点 1-9（含加分项）+ Mattermost @bot 简化入口均映射到对应 phase，详见 [REQUIREMENTS.md 评分对照表](./REQUIREMENTS.md#面试评分点对照)。
 
