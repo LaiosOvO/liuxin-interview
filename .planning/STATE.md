@@ -11,9 +11,10 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 ## Current Status
 
-**Stage:** Phase 8 Plan 04 完成 — huly-bridge Node sidecar 完整骨架（Express + tsx + vitest + Dockerfile）+ service token 生成（已 Docker 真启动验证）+ 52 单测 PASS
+**Stage:** Phase 8 Plan 05 完成 — sidecar IM/Doc 路由真实现 + listener 反向订阅 + Python provider/listener/route 全栈接通 + 73 测试 PASS（38 vitest + 35 pytest）+ 0 回归
 
 **Last completed:**
+- Phase 8 Plan 05: sidecar 3 模块（im.ts/doc.ts/listener.ts）+ Python 4 模块（HulyIMProvider/HulyDocProvider/HulyListener/api/internal_huly）+ factory + main.py 装配（3 commits 08534c9..2588243）— HULY-05/06/07 3 个 REQ Complete；IM_PROVIDER=huly DOC_PROVIDER=huly 一行切换可用
 - Phase 8 Plan 04: backend/sidecars/huly-bridge/ 完整 17 文件 + 52 vitest 单测 PASS + Dockerfile build + run + curl 全通（5 commits d070cea..a9992a3）— HULY-03/04 2 个 REQ Complete
 - Phase 8 Plan 03: scripts/pull_huly_images.sh + docker-compose.yml huly-stack/huly profile + .env.example HULY_* + 11 个集成测试（2 commits 51183c6..fa8b427）— HULY-01/02 2 个 REQ Complete
 - Phase 8 Plan 01: IMListener Protocol + dispatch_message + DocProvider 3 新 lifecycle 方法 + IMProvider register hook + BotHandlerRegistry（5 commits b27eb2d..c358edc）— ABS-01..05 5 个 REQ Complete
@@ -22,9 +23,8 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 **Next action:** Phase 8 剩余 plan：
 - Plan 02 (ABS-06 节点元数据外提到 config/nodes.yaml)
-- Plan 05 (实现 huly-bridge 7 个业务路由 + HulyDocProvider — 通过 huly-bridge:7777 调 Huly TS SDK)
-- Plan 06 (HulyListener / HulyIMProvider 实现 — 复用 IMListener Protocol)
-- Plan 07 (Huly bot seed + MCP server)
+- Plan 06 (seed_huly_users + Plan 05 端到端 E2E — 通过 huly-bridge 写 13 用户，跑 browser E2E)
+- Plan 07 (MCP server + AI 节点增强 — 复用 HandlerRegistry 暴露 11 命令为 MCP tools)
 
 ---
 
@@ -40,7 +40,7 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 5 | 前端 Next.js + 多角色 + 申请人时间线 + 逾期标签 | ✓ Complete |
 | 6 | 部署 + 演示模式切换 + 超时扫描 + 运维脚本 + 演示打磨 | ✓ Complete |
 | 7 | 协作文档抽象 + 按员工分文件夹 + 生产级 DAG + E2E | ✓ Complete |
-| 8 | IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化 | ◐ In Progress（Plan 01 ✓ + Plan 03 ✓ + Plan 04 ✓；Plan 02 / 05..07 待执行）|
+| 8 | IM/Doc 全抽象 + Huly 接入 + 流程 MCP 化 | ◐ In Progress（Plan 01 ✓ + Plan 03 ✓ + Plan 04 ✓ + Plan 05 ✓；Plan 02 / 06 / 07 待执行）|
 
 详见 [.planning/ROADMAP.md](./ROADMAP.md)。
 
@@ -62,6 +62,22 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 | 2026-05-17 | execute-plan 08-01 (resume) | Plan 01 (IM/Doc 抽象 + HandlerRegistry) 完成 — 前一次 executor 完 task 01-01/02/03（commits b27eb2d / 6db4968 / 9064c3a）；本次 executor 继续完成 01-04..01-08（commits 3d4abd0 / c358edc + 最终 metadata commit）— 58 个新单测全 PASS + 新代码 100% 覆盖率 + ABS-01..05 5 个 REQ 全部 Complete + 0 回归 |
 | 2026-05-17 | execute-plan 08-03 --auto | Plan 03 (Huly Docker stack + profile) 完成 — 2 commits (51183c6 feat HULY-01 scripts + docs / fa8b427 feat HULY-02 compose + .env + 11 tests)；15 镜像清单（11 业务 + 4 基础设施，对齐上游 huly-selfhost v0.7.423）+ huly-stack/huly 两 profile + 默认 0 影响现有 6 service + 11 集成测试 PASS + gitleaks 通过；HULY-01/02 2 REQ Complete |
 | 2026-05-17 | execute-plan 08-04 --auto | Plan 04 (huly-bridge Node sidecar 骨架) 完成 — 5 commits (d070cea init / cd4085f core / 3b1bb6f entrypoint / 1a69525 tests / a9992a3 CJS fix)；17 文件 ~1700 LOC（Express + tsx + vitest + Dockerfile）+ Huly service token 生成（generateToken systemAccountUuid + service='offboarding-bot' 已源码验证 + Docker 真启动 smoke 验证）+ /healthz 反映 Huly 连接 + 7 业务路由 stub + 52 单测 PASS（auth+config 100% coverage）+ tsc 0 error；4 deviations 自动修复（document 包 npm 缺 0.7.423 / @hcengineering 缺 .d.ts / CJS ESM interop / 测试套件扩展）；HULY-03/04 2 REQ Complete |
+| 2026-05-17 | execute-plan 08-05 --auto | Plan 05 (Huly 业务接入层 + 反向通道) 完成 — 3 commits (08534c9 sidecar IM 路由 / 5114e45 sidecar Doc+listener+index / 2588243 Python provider+listener+route)；16 创建 + 7 修改 ~3400 LOC（sidecar im.ts/doc.ts/listener.ts + Python HulyIMProvider/HulyDocProvider/HulyListener/api/internal_huly + factory + main lifespan）；73 测试 PASS（38 vitest + 35 pytest）+ tsc 0 error + mypy 0 error + ruff 0 error；4 deviations 自动修复（healthz mock 补 / mypy 类型注解 / BRIDGE_TOKEN 空时主动 401 安全 / tests/unit/workers 包入口）；HULY-05/06/07 3 REQ Complete；IM_PROVIDER=huly DOC_PROVIDER=huly 一行切换可用 |
+
+---
+
+## Plan 05 Decisions (2026-05-17)
+
+- **socialKey 模式作为身份解析 canonical** — 与 ai-bot/utils/platform.ts:getAccountBySocialKey 同模式（SocialIdentity.key='email:{user}@demo.local' → Employee.personUuid → AccountUuid）；Plan 06 seed 必须用同 key 格式
+- **DM 查/建 复用 ai-bot getDirect** — findAll DirectMessage by members → 过滤 members 集合恰为 {bot, target} → 找到复用 / 否则 createDoc 新 DM
+- **listener v1 用 2s poll 而非 live subscription** — RESEARCH §Open Questions #2 已定；v2 升级 live 订阅
+- **死循环防护用 systemAccountUuid 作为 bot 标识** — Plan 04 service token 已用此 UUID；Plan 06 seed 后可换真 bot 账号
+- **channel_type 映射用 attachedToClass 包含判断** — DirectMessage→'D'，PrivateChannel→'P'，其他→'O'；与 MM 约定对齐让 dispatcher 0 改动
+- **register_command_listener 在 HulyIMProvider 是 no-op** — listener 走独立 HulyListener（webhook 模式）；Protocol 契约满足即可
+- **@hcengineering/document 用本地 .d.ts shim + lookup helper** — npm 公网无 v0.7.423（Plan 04 deviation #1）；类型靠 shim，运行时 lookup 兜底
+- **BRIDGE_TOKEN 配置为空时主动 401** — 防止运营误配让 webhook 变开放接口（NFR-05）
+- **测试用 httpx.MockTransport（不是 respx）** — 项目无 respx；MockTransport 是 httpx 内置，captures URL/body/headers 同样能验证契约
+- **main.py 用 IMListener Proto 抽象类型注解** — 解决 mypy "MattermostListener | None 不能接 HulyListener"；isinstance(_, IMListener) runtime_checkable 校验生效
 
 ---
 
@@ -100,4 +116,4 @@ See: [.planning/PROJECT.md](./PROJECT.md) (updated 2026-05-16)
 
 ---
 
-*Last updated: 2026-05-17 after Phase 8 Plan 04 completion (huly-bridge Node sidecar 骨架 — service token + /healthz + 7 业务路由 stub + 52 单测 PASS + Docker 真启动验证)*
+*Last updated: 2026-05-17 after Phase 8 Plan 05 completion (Huly 业务接入层 + 反向通道 — sidecar IM/Doc 路由真实现 + Python provider/listener/route 全栈接通 + 73 测试 PASS + IM_PROVIDER=huly 一行切换可用)*

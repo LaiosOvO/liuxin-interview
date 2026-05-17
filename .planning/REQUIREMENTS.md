@@ -182,15 +182,18 @@
 | HULY-01 | Phase 8 (Plan 03) | Complete |
 | HULY-02 | Phase 8 (Plan 03) | Complete |
 | HULY-03 | Phase 8 (Plan 04) | Complete |
-| HULY-04 | Phase 8 (Plan 05) | Complete |
-| HULY-05 | Phase 8 (Plan 06) | Pending |
+| HULY-04 | Phase 8 (Plan 04) | Complete |
+| HULY-05 | Phase 8 (Plan 05) | Complete |
+| HULY-06 | Phase 8 (Plan 05) | Complete |
+| HULY-07 | Phase 8 (Plan 05) | Complete |
+| HULY-08 | Phase 8 (Plan 06) | Pending |
 | MCP-01 | Phase 8 (Plan 07) | Pending |
 | MCP-02 | Phase 8 (Plan 07) | Pending |
 
 **Coverage:**
 - v1 requirements: 45 total（v0.4 新增 14 项：LLM-04/05/06 + BOT-01/02/03/04 + TIMEOUT-01/02/03/04 + AUTO-01/02/03）
-- v1 Phase 8 增量: 13 项（ABS-01..06 + HULY-01..05 + MCP-01..02），其中本日完成 ABS-01..05 + HULY-01..02 共 7 项
-- Mapped to phases: 58
+- v1 Phase 8 增量: 16 项（ABS-01..06 + HULY-01..08 + MCP-01..02），其中已完成 ABS-01..05 + HULY-01..07 共 12 项（Plan 01/03/04/05）
+- Mapped to phases: 61
 - Unmapped: 0 ✓
 
 **面试评分点对照**（PRD §15.0 同步）：
