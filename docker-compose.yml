@@ -191,6 +191,373 @@ services:
     networks:
       - offboarding-net
 
+  # ===========================================================================
+  # Phase 8 / HULY-01 — Huly Platform Stack（opt-in via --profile huly-stack）
+  # ---------------------------------------------------------------------------
+  # 默认 docker compose up -d 不启动以下任何 service（profiles: ["huly-stack"]）。
+  # 现有 5 个 offboarding service（postgres / redis / flow-api / nginx / outline）
+  # 的行为 0 变化。
+  #
+  # 启动方法：docker compose --profile huly-stack up -d
+  # 详见：deploy/huly/HULY_IMAGES.md
+  # ===========================================================================
+
+  # ---- 基础设施层（4 个）-----------------------------------------------------
+
+  huly-cockroach:
+    image: cockroachdb/cockroach:latest-v24.2
+    container_name: offboarding-huly-cockroach
+    profiles: ["huly-stack"]
+    command: start-single-node --insecure --accept-sql-without-tls --listen-addr=0.0.0.0:26257 --http-addr=0.0.0.0:8080
+    ports:
+      - "26257:26257"   # SQL
+      - "8888:8080"     # Admin UI
+    volumes:
+      - huly-cockroach-data:/cockroach/cockroach-data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - offboarding-net
+
+  huly-redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.6
+    container_name: offboarding-huly-redpanda
+    profiles: ["huly-stack"]
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://huly-redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://huly-redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr huly-redpanda:33145
+      - --advertise-rpc-addr huly-redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "19092:19092"   # Kafka external
+      - "19644:9644"    # Admin API
+    volumes:
+      - huly-redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-elastic:
+    image: elasticsearch:7.14.2
+    container_name: offboarding-huly-elastic
+    profiles: ["huly-stack"]
+    command: |
+      /bin/sh -c "./bin/elasticsearch-plugin list | grep -q ingest-attachment || yes | ./bin/elasticsearch-plugin install --silent ingest-attachment;
+      /usr/local/bin/docker-entrypoint.sh eswrapper"
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1024m -Xmx1024m
+      - http.cors.enabled=true
+      - http.cors.allow-origin=*
+    ports:
+      - "19200:9200"
+    volumes:
+      - huly-elastic-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-minio:
+    image: minio/minio:latest
+    container_name: offboarding-huly-minio
+    profiles: ["huly-stack"]
+    # 注意：端口 9091/9092 避让项目原 MinIO 占用的 9000/9001
+    command: server /data --address ":9000" --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${HULY_MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${HULY_MINIO_PASSWORD:-minioadmin}
+    ports:
+      - "9091:9000"     # S3 API
+      - "9092:9001"     # Console
+    volumes:
+      - huly-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  # ---- 业务服务层（11 个 hardcoreeng/* — 统一 ${HULY_VERSION}）---------------
+
+  huly-account:
+    image: hardcoreeng/account:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-account
+    profiles: ["huly-stack"]
+    environment:
+      - SERVER_PORT=3000
+      # 注意：${HULY_SERVER_SECRET} 不带 :? 强校验（避免默认 profile 启动时被这一行卡住）
+      # 启动 huly-stack 前必须填 .env；详见 deploy/huly/README.md
+      - SERVER_SECRET=${HULY_SERVER_SECRET}
+      - ACCOUNT_PORT=3000
+      - DB_URL=postgresql://root@huly-cockroach:26257/defaultdb?sslmode=disable
+      - TRANSACTOR_URL=ws://huly-transactor:3333
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+      - FRONT_URL=http://192.168.2.44:8087
+      - STATS_URL=http://huly-stats:4900
+      - ACCOUNTS_URL=http://huly-account:3000
+      - MODEL_ENABLED=*
+      - QUEUE_CONFIG=huly-redpanda:9092
+    ports:
+      - "3007:3000"
+    depends_on:
+      huly-cockroach:
+        condition: service_healthy
+      huly-minio:
+        condition: service_healthy
+      huly-redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-transactor:
+    image: hardcoreeng/transactor:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-transactor
+    profiles: ["huly-stack"]
+    environment:
+      - SERVER_PORT=3333
+      - SERVER_SECRET=${HULY_SERVER_SECRET}
+      - DB_URL=postgresql://root@huly-cockroach:26257/defaultdb?sslmode=disable
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+      - FRONT_URL=http://192.168.2.44:8087
+      - ACCOUNTS_URL=http://huly-account:3000
+      - FULLTEXT_URL=http://huly-fulltext:4700
+      - STATS_URL=http://huly-stats:4900
+      - QUEUE_CONFIG=huly-redpanda:9092
+      - LAST_NAME_FIRST=true
+    ports:
+      - "3008:3333"
+    depends_on:
+      - huly-account
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-collaborator:
+    image: hardcoreeng/collaborator:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-collaborator
+    profiles: ["huly-stack"]
+    environment:
+      - COLLABORATOR_PORT=3078
+      - SECRET=${HULY_SERVER_SECRET}
+      - ACCOUNTS_URL=http://huly-account:3000
+      - STATS_URL=http://huly-stats:4900
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+    ports:
+      - "3009:3078"
+    depends_on:
+      - huly-transactor
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-workspace:
+    image: hardcoreeng/workspace:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-workspace
+    profiles: ["huly-stack"]
+    environment:
+      - SERVER_SECRET=${HULY_SERVER_SECRET}
+      - DB_URL=postgresql://root@huly-cockroach:26257/defaultdb?sslmode=disable
+      - ACCOUNTS_DB_URL=postgresql://root@huly-cockroach:26257/defaultdb?sslmode=disable
+      - TRANSACTOR_URL=ws://huly-transactor:3333
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+      - MODEL_ENABLED=*
+      - ACCOUNTS_URL=http://huly-account:3000
+      - STATS_URL=http://huly-stats:4900
+      - QUEUE_CONFIG=huly-redpanda:9092
+    depends_on:
+      - huly-transactor
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-fulltext:
+    image: hardcoreeng/fulltext:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-fulltext
+    profiles: ["huly-stack"]
+    environment:
+      - SERVER_SECRET=${HULY_SERVER_SECRET}
+      - DB_URL=postgresql://root@huly-cockroach:26257/defaultdb?sslmode=disable
+      - FULLTEXT_DB_URL=http://huly-elastic:9200
+      - ELASTIC_INDEX_NAME=huly_storage_index
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+      - REKONI_URL=http://huly-rekoni:4004
+      - ACCOUNTS_URL=http://huly-account:3000
+      - STATS_URL=http://huly-stats:4900
+      - QUEUE_CONFIG=huly-redpanda:9092
+    depends_on:
+      - huly-elastic
+      - huly-account
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-stats:
+    image: hardcoreeng/stats:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-stats
+    profiles: ["huly-stack"]
+    environment:
+      - PORT=4900
+      - SERVER_SECRET=${HULY_SERVER_SECRET}
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-rekoni:
+    image: hardcoreeng/rekoni-service:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-rekoni
+    profiles: ["huly-stack"]
+    environment:
+      - SECRET=${HULY_SERVER_SECRET}
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-kvs:
+    image: hardcoreeng/hulykvs:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-kvs
+    profiles: ["huly-stack"]
+    environment:
+      - HULY_DB_CONNECTION=postgresql://root@huly-cockroach:26257/defaultdb?sslmode=disable
+      - HULY_TOKEN_SECRET=${HULY_SERVER_SECRET}
+    ports:
+      - "8094:8094"
+    depends_on:
+      huly-cockroach:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  # huly-love：视频通话信令（v1 可选）— 若不需视频通话可注释整段
+  huly-love:
+    image: hardcoreeng/love:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-love
+    profiles: ["huly-stack"]
+    environment:
+      - SECRET=${HULY_SERVER_SECRET}
+      - ACCOUNTS_URL=http://huly-account:3000
+      - STATS_URL=http://huly-stats:4900
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-print:
+    image: hardcoreeng/print:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-print
+    profiles: ["huly-stack"]
+    environment:
+      - SECRET=${HULY_SERVER_SECRET}
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+    restart: unless-stopped
+    networks:
+      - offboarding-net
+
+  huly-front:
+    image: hardcoreeng/front:${HULY_VERSION:-v0.7.423}
+    container_name: offboarding-huly-front
+    profiles: ["huly-stack"]
+    environment:
+      - SERVER_PORT=8080
+      - SERVER_SECRET=${HULY_SERVER_SECRET}
+      - ACCOUNTS_URL=http://192.168.2.44:3007
+      - ACCOUNTS_URL_INTERNAL=http://huly-account:3000
+      - REKONI_URL=http://huly-rekoni:4004
+      - STATS_URL=http://huly-stats:4900
+      - UPLOAD_URL=/files
+      - ELASTIC_URL=http://huly-elastic:9200
+      - COLLABORATOR_URL=ws://huly-collaborator:3078
+      - STORAGE_CONFIG=minio|huly-minio?accessKey=${HULY_MINIO_USER:-minioadmin}&secretKey=${HULY_MINIO_PASSWORD:-minioadmin}
+      - TITLE=Huly@laios
+      - DEFAULT_LANGUAGE=zh
+      - LAST_NAME_FIRST=true
+    ports:
+      - "8087:8080"
+    depends_on:
+      - huly-account
+      - huly-transactor
+      - huly-collaborator
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - offboarding-net
+
+  # ===========================================================================
+  # Phase 8 / HULY-02 — huly-bridge sidecar 占位（profile=huly）
+  # ---------------------------------------------------------------------------
+  # 本 Plan 03 仅占位声明；Plan 04 会真正实现 backend/sidecars/huly-bridge/
+  # 的 Dockerfile + src/。占位的目的是让 .env.example 与 compose 引用关系
+  # 早期可静态校验。
+  # ===========================================================================
+  huly-bridge:
+    profiles: ["huly"]
+    build:
+      context: ./backend/sidecars/huly-bridge
+      dockerfile: Dockerfile
+    container_name: offboarding-huly-bridge
+    environment:
+      HULY_URL: ${HULY_URL}
+      HULY_ACCOUNTS_URL: ${HULY_ACCOUNTS_URL}
+      HULY_WORKSPACE: ${HULY_WORKSPACE}
+      SERVER_SECRET: ${HULY_SERVER_SECRET}
+      BACKEND_URL: http://flow-api:8000
+      BRIDGE_TOKEN: ${HULY_BRIDGE_TOKEN}
+      PORT: "7777"
+    ports:
+      - "7777:7777"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7777/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    networks:
+      - offboarding-net
+
+volumes:
+  # Huly 持久化卷（profile=huly-stack 启动时按需创建）
+  huly-cockroach-data:
+  huly-redpanda-data:
+  huly-elastic-data:
+  huly-minio-data:
+
 networks:
   offboarding-net:
     driver: bridge
