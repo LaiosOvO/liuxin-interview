@@ -88,8 +88,11 @@ def get_node_service(
     node_repo: Annotated[NodeRepository, Depends(get_node_repo)],
     action_repo: Annotated[ActionRepository, Depends(get_action_repo)],
     redis: Annotated[Redis, Depends(get_redis_dep)],
+    notification_service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> NodeService:
-    """合并 Phase 2 (session_factory 失败补偿) + Phase 3 (Redis token 失效)。"""
+    """合并 Phase 2 (session_factory 失败补偿) + Phase 3 (Redis token 失效)
+    + Bug-fix (step 6.5 enqueue 邮件 — 注入 notification_service)。
+    """
     graph = get_graph()
     return NodeService(
         session=session,
@@ -99,4 +102,5 @@ def get_node_service(
         graph=graph,
         session_factory=new_session,
         redis=redis,
+        notification_service=notification_service,
     )

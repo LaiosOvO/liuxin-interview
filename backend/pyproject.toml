@@ -40,6 +40,8 @@ dependencies = [
   "mattermostautodriver>=2.0,<3",
   # Phase 8 / Plan 07: MCP server（流程 MCP 化，MCP-01..06）— FastMCP 3.x decorator API
   "fastmcp>=3.3.1,<4",
+  # Meeting v1: 飞书 WebSocket 长连接 SDK（bot 接收消息 + 调 Lark OpenAPI）
+  "lark-oapi>=1.4.18,<2",
 ]
 
 [project.optional-dependencies]

@@ -99,11 +99,11 @@ def _build_state_graph() -> StateGraph:
     b.add_edge(START, APPLY_NODE_NAME)
     b.add_edge(APPLY_NODE_NAME, MANAGER_REVIEW_NODE_NAME)
 
-    # ---- 3. manager_review 三态条件边 ----
+    # ---- 3. manager_review 三态条件边（return → apply 让申请人重写）----
     b.add_conditional_edges(
         MANAGER_REVIEW_NODE_NAME,
         route_after_manager_review,
-        {END: END, HR_INITIAL: HR_INITIAL_NODE_NAME},
+        {END: END, HR_INITIAL: HR_INITIAL_NODE_NAME, APPLY: APPLY_NODE_NAME},
     )
 
     # ---- 4. hr_initial 三态条件边 + advance 时 fan-out 5 并行节点 ----

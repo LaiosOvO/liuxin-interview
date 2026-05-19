@@ -51,12 +51,15 @@ def route_after_manager_review(state: OffboardingState) -> str:
     """manager_review 三态决策路由。
 
     - reject → END（流程终止）
-    - advance / return → hr_initial（manager_review 是首人工节点，无上游可退；return 等价于 advance）
+    - return → apply（退回到申请人，让其修改申请理由后重新提交）
+    - advance → hr_initial（推进 HR 初审）
     """
     action = state.get("current_action")
     logger.info("[route] after manager_review action=%s", action)
     if action == "reject":
         return END
+    if action == "return":
+        return APPLY
     return HR_INITIAL
 
 

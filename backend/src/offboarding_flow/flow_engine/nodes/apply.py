@@ -1,11 +1,11 @@
-"""apply 节点：流程入口。
+"""apply 节点：申请人填写离职申请 — 人工 interrupt 节点。
 
-Phase 1: 仅初始化 state（写 employee_id / 初始 context）。
-不 interrupt — 自动推进到 manager_review。
+设计修订（Bug 3 修复）：
+原版是自动节点（写死 advance），导致申请人没机会填写申请就直接给上级发邮件。
+现在改成 interrupt 节点：起流程后等申请人提交（advance）才推进到 manager_review。
+manager_review 退回时也会回到 apply 让申请人修改后重新提交。
 
-Phase 2 才完整接入 Repository 业务层；本 Plan 节点函数留 TODO。
-业务表的双写实际由 service 层（Plan 06）在 API 入口预先 upsert，节点函数仅负责
-state 推进。
+幂等：interrupt 抛 GraphInterrupt 后节点函数会重跑，本节点函数无副作用，安全。
 """
 
 from __future__ import annotations
@@ -13,32 +13,55 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from langgraph.types import interrupt
+
 from offboarding_flow.flow_engine.state import OffboardingState
 
 APPLY_NODE_NAME = "apply"
-APPLY_NODE_TITLE = "申请提交"
+APPLY_NODE_TITLE = "提交离职申请"
 
 logger = logging.getLogger(__name__)
 
 
 async def apply_node(state: OffboardingState) -> dict:
-    """apply 节点函数：自动节点（无 interrupt），仅累计 node_results。"""
+    """apply 节点函数：interrupt 等申请人填写申请。"""
     logger.info(
-        "[apply_node] flow_id=%s employee_id=%s",
+        "[apply_node] flow_id=%s employee_id=%s — interrupt for applicant",
         state.get("flow_id"),
         state.get("employee_id"),
     )
-    # TODO(Plan 06 / Phase 2): 注入 NodeRepository 通过依赖反转，upsert apply 节点
-    # 当前实现：仅在 state.node_results 追加 apply 完成记录（Annotated reducer 追加而非覆盖）
+
+    decision = interrupt(
+        {
+            "node_name": APPLY_NODE_NAME,
+            "node_title": APPLY_NODE_TITLE,
+            "node_description": "请填写离职理由 / 最后工作日 / 交接计划等申请信息",
+            "flow_id": state.get("flow_id"),
+            "employee_id": state.get("employee_id"),
+        }
+    )
+
+    logger.info(
+        "[apply_node] resumed with action=%s actor=%s",
+        decision.get("action") if isinstance(decision, dict) else decision,
+        decision.get("actor") if isinstance(decision, dict) else None,
+    )
+
+    if not isinstance(decision, dict):
+        decision = {"action": "advance", "result_text": str(decision), "actor": "unknown"}
+
     return {
-        "current_action": "advance",
+        "current_action": decision["action"],
         "node_results": [
             {
                 "node_name": APPLY_NODE_NAME,
                 "node_title": APPLY_NODE_TITLE,
-                "result_text": "离职申请已提交",
-                "actor": state.get("employee_id", "unknown"),
-                "completed_at": datetime.now(UTC).isoformat(),
+                "result_text": decision.get("result_text", ""),
+                "actor": decision.get("actor", "unknown"),
+                "completed_at": decision.get(
+                    "completed_at",
+                    datetime.now(UTC).isoformat(),
+                ),
             }
         ],
     }

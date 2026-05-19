@@ -284,3 +284,41 @@ class NotificationOutbox(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# 7. meetings —— 会议纪要持久化（Meeting v1，pageindex 风格 RAG 数据源）
+# ---------------------------------------------------------------------------
+class Meeting(Base):
+    """会议纪要表 — 飞书 bot 收到的纪要文本 + AI 总结 + extract JSON 持久化。
+
+    用途：
+    - bot RAG 问答时从此表检索（不依赖飞书 list_files API 权限）
+    - HR Dashboard 列出历史会议（v2）
+    - pageindex 风格：title + summary 作为 LLM 路由的 TOC，raw_text 作为问答全文
+    """
+
+    __tablename__ = "meetings"
+    __table_args__ = ({"schema": "app"},)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extract_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_doc_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ingested_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

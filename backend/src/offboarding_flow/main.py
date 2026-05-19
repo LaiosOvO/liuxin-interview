@@ -104,9 +104,18 @@ async def lifespan(app: FastAPI):
 
                     listener = HulyListener(settings)
                     app.state.huly_listener = listener
+                elif provider == "lark" or provider == "feishu":
+                    # 飞书 WebSocket 长连接 — 独立线程跑，不走 IMListener Protocol
+                    # （bot 接收 @ 消息 → MeetingService → 飞书 Doc → 回复用户）
+                    from offboarding_flow.workers.lark_listener import start_lark_listener
+
+                    lark_inst = start_lark_listener(settings)
+                    app.state.lark_listener = lark_inst
+                    logger.info("[lifespan] ✓ lark listener started (WebSocket 长连接, 独立线程)")
+                    continue  # 不走 IMListener Protocol register / start
                 else:
                     logger.info(
-                        "[lifespan] skip provider=%s (mattermost 需 bot_token / huly 走 webhook)",
+                        "[lifespan] skip provider=%s (mattermost 需 bot_token / huly 走 webhook / lark 走 WebSocket)",
                         provider,
                     )
                     continue

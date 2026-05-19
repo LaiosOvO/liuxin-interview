@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     lark_app_id: str = Field(default="changeme_lark_app_id", validate_default=False)
     lark_app_secret: str = Field(default="changeme_lark_app_secret", validate_default=False)
     lark_docs_folder_token: str = ""  # 文档存放根目录 token（可选）
+    # 演示约定（v1）：路景智一个飞书账号扮演所有角色（HR / 老板 / 开发者 / 申请人）
+    # bot @ 时按 demo_owner_open_id 路由 + 消息加 【XX 身份】 前缀（见 memory/project_single_user_multi_role.md）
+    lark_demo_owner_open_id: str = (
+        ""  # 路景智的 open_id（启动期可空，listener 收到第一条消息自动学习）
+    )
+    lark_demo_mode: bool = True  # demo 模式下所有 bot @ 都走 demo_owner_open_id + 加身份标签
 
     # 企业微信
     wecom_corp_id: str = ""

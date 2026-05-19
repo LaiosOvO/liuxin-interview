@@ -21,8 +21,6 @@ from offboarding_flow.config import get_settings
 from offboarding_flow.flow_engine.nodes import (
     APPLY_NODE_NAME,
     APPLY_NODE_TITLE,
-    MANAGER_REVIEW_NODE_NAME,
-    MANAGER_REVIEW_NODE_TITLE,
 )
 from offboarding_flow.flow_engine.state import OffboardingState
 from offboarding_flow.state_store.enums import (
@@ -111,21 +109,17 @@ class FlowService:
             display_name=_DEFAULT_MANAGER_USERNAME,
         )
 
-        # 提前 upsert apply（自动节点：done）+ manager_review（waiting_human，assignee=li.si）
-        # + applicant_view（waiting_human，assignee=申请人，专门给员工点 deep link 进入）
-        await self.node_repo.upsert(
+        # Bug-fix: apply 改为人工 interrupt 节点 — 起步时 WAITING_HUMAN，等申请人填写
+        # manager_review 不再起步预 upsert / 发邮件 — 由 node_service step 6.5 在 apply
+        # advance 后自动激活并发 lisa 邮件。这样保证邮件触发与流程实际推进同步。
+        apply_node_obj = await self.node_repo.upsert(
             flow_id=flow.id,
             node_name=APPLY_NODE_NAME,
             node_title=APPLY_NODE_TITLE,
-            status=NodeStatus.DONE,
-        )
-        manager_node = await self.node_repo.upsert(
-            flow_id=flow.id,
-            node_name=MANAGER_REVIEW_NODE_NAME,
-            node_title=MANAGER_REVIEW_NODE_TITLE,
             status=NodeStatus.WAITING_HUMAN,
-            assignee=_DEFAULT_MANAGER_USERNAME,
+            assignee=employee_id,
         )
+        manager_node = None  # 不预 upsert — step 6.5 接管
         applicant_view_node = await self.node_repo.upsert(
             flow_id=flow.id,
             node_name=APPLICANT_VIEW_NODE_NAME,
@@ -134,61 +128,31 @@ class FlowService:
             assignee=employee_id,
         )
 
-        # Phase 4 Slice 4A: outbox 入队 manager_review email（事务内一致提交，REQ-NOTI-01/04）
-        # 失败仅 log warning 不阻断主链路（双通道：Mattermost 还在 Slice 4B）
-        if self.notification_service is not None and manager_node is not None:
-            manager_token, manager_payload = self._build_node_token(
+        # 申请人"请填写离职申请"邮件 — target apply 节点（Bug 3 修复后的正确流程）
+        if self.notification_service is not None and apply_node_obj is not None:
+            apply_token, apply_payload = self._build_node_token(
                 flow_id=flow.id,
-                node=manager_node,
-                role=Role.MANAGER.value,
+                node=apply_node_obj,
+                role=Role.APPLICANT.value,
                 allowed_actions=["advance", "return", "reject"],
             )
             try:
                 await self.notification_service.enqueue_node_email(
                     flow_id=flow.id,
-                    node_state_id=manager_node.id,
-                    node_name=MANAGER_REVIEW_NODE_NAME,
-                    node_title=MANAGER_REVIEW_NODE_TITLE,
-                    node_description=_DEFAULT_MANAGER_DESC,
-                    assignee_username=_DEFAULT_MANAGER_USERNAME,
-                    assignee_email=f"{_DEFAULT_MANAGER_USERNAME}@demo.local",
-                    assignee_role=_DEFAULT_MANAGER_ROLE,
-                    employee_name=employee_id,
-                    deep_link_payload=manager_payload,
-                    deep_link_token=manager_token,
-                )
-            except Exception as enqueue_exc:
-                logger.warning(
-                    "[flow_service] manager outbox enqueue failed (non-fatal) flow=%s: %s",
-                    flow.id,
-                    enqueue_exc,
-                )
-
-        # 申请人"开始"邮件 — target applicant_view 节点（PRD §6.2 / §7.4）
-        if self.notification_service is not None and applicant_view_node is not None:
-            applicant_token, applicant_payload = self._build_node_token(
-                flow_id=flow.id,
-                node=applicant_view_node,
-                role=Role.APPLICANT.value,
-                allowed_actions=[],
-            )
-            try:
-                await self.notification_service.enqueue_node_email(
-                    flow_id=flow.id,
-                    node_state_id=applicant_view_node.id,
-                    node_name=APPLICANT_VIEW_NODE_NAME,
-                    node_title=APPLICANT_VIEW_NODE_TITLE,
-                    node_description=_APPLICANT_VIEW_DESC,
+                    node_state_id=apply_node_obj.id,
+                    node_name=APPLY_NODE_NAME,
+                    node_title=APPLY_NODE_TITLE,
+                    node_description="请填写离职理由 / 最后工作日 / 交接计划等申请信息后提交。",
                     assignee_username=employee_id,
                     assignee_email=f"{employee_id}@demo.local",
                     assignee_role=Role.APPLICANT.value,
                     employee_name=employee_id,
-                    deep_link_payload=applicant_payload,
-                    deep_link_token=applicant_token,
+                    deep_link_payload=apply_payload,
+                    deep_link_token=apply_token,
                 )
             except Exception as enqueue_exc:
                 logger.warning(
-                    "[flow_service] applicant kickoff email enqueue failed flow=%s: %s",
+                    "[flow_service] apply kickoff email enqueue failed flow=%s: %s",
                     flow.id,
                     enqueue_exc,
                 )
@@ -215,7 +179,7 @@ class FlowService:
         config = {"configurable": {"thread_id": str(flow.id)}}
         try:
             await self.graph.ainvoke(initial_state, config=config)
-            logger.info("[flow_service] flow %s started, interrupted at manager_review", flow.id)
+            logger.info("[flow_service] flow %s started, interrupted at apply", flow.id)
         except Exception as e:
             logger.exception("[flow_service] graph.ainvoke failed for flow %s: %s", flow.id, e)
             # Phase 2 才加：mark action_log.failed + recover 脚本

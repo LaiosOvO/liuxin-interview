@@ -54,7 +54,9 @@ _BG_TASKS: set[_asyncio_typing.Task[None]] = set()
 
 # action 字符串 → (ActionType, 新 NodeStatus) 映射
 # 节点元数据 — graph 推进时按节点名查 title / 默认 assignee
+# assignee="_employee_" 占位 → step 6.5 在 upsert 前替换为真实 flow.employee_id
 _NODE_META: dict[str, dict[str, str]] = {
+    "apply": {"title": "提交离职申请", "assignee": "_employee_"},
     "manager_review": {"title": "上级审批", "assignee": "li.si"},
     "hr_initial": {"title": "HR 初审", "assignee": "hr.bob"},
     "device_return": {"title": "设备归还", "assignee": "it.charlie"},
@@ -64,6 +66,34 @@ _NODE_META: dict[str, dict[str, str]] = {
     "legal_sign": {"title": "法务签字", "assignee": "legal.eve"},
     "hr_final": {"title": "HR 终审", "assignee": "hr.alice"},
     "applicant_final_confirm": {"title": "申请人最终确认", "assignee": "_employee_"},
+}
+
+# 节点角色映射 — step 6.5 enqueue 邮件时签 JWT 用
+_NODE_ROLE: dict[str, str] = {
+    "apply": "applicant",
+    "manager_review": "manager",
+    "hr_initial": "hr",
+    "device_return": "it_admin",
+    "access_revoke": "it_admin",
+    "knowledge_handover": "hr",
+    "finance_settle": "finance",
+    "legal_sign": "legal",
+    "hr_final": "hr",
+    "applicant_final_confirm": "applicant",
+}
+
+# 节点描述（邮件正文用）
+_NODE_DESC: dict[str, str] = {
+    "apply": "请填写离职理由 / 最后工作日 / 交接计划等申请信息后提交。",
+    "manager_review": "请审阅离职申请，确认理由并选择 通过 / 退回 / 拒绝。",
+    "hr_initial": "请进行 HR 初审，核对申请材料是否完整。",
+    "device_return": "请确认员工设备归还情况。",
+    "access_revoke": "请回收员工各系统权限。",
+    "knowledge_handover": "请确认知识交接是否完成。",
+    "finance_settle": "请完成离职财务结算。",
+    "legal_sign": "请确认法务签字流程。",
+    "hr_final": "请进行 HR 终审。",
+    "applicant_final_confirm": "您的离职流程已走完，请确认所有节点结果。",
 }
 
 
@@ -97,6 +127,7 @@ class NodeService:
         graph: Any,
         session_factory: SessionFactory | None = None,
         redis: "Redis | None" = None,
+        notification_service: Any | None = None,
     ) -> None:
         self.session = session
         self.flow_repo = flow_repo
@@ -106,6 +137,8 @@ class NodeService:
         # 用 _default_session_factory 默认值（测试可注入 mock）
         self.session_factory: SessionFactory = session_factory or _default_session_factory
         self.redis = redis
+        # Bug-fix: step 6.5 在 graph 推进后给新激活节点 enqueue 邮件
+        self.notification_service = notification_service
 
     async def submit_action(
         self,
@@ -114,8 +147,17 @@ class NodeService:
         action: str,
         result_text: str,
         actor: str,
+        current_user_sub: str | None = None,
+        current_user_node_id: uuid.UUID | None = None,
     ) -> dict[str, Any]:
-        """提交三态决策推进节点（Phase 2 双写规范完整版）。"""
+        """提交三态决策推进节点（Phase 2 双写规范完整版）。
+
+        Args:
+            current_user_sub: 当前登录用户的 username（从 session cookie 解出）。非 None 时
+                必须等于 node.assignee（防止申请人伪装上级提交）。
+            current_user_node_id: session 绑定的 node_id（深链签发时锁定）。非 None 时必须
+                等于 node_id（防止持 A 节点 token 提交 B 节点）。
+        """
         if action not in _ACTION_MAP:
             raise HTTPException(
                 status_code=400,
@@ -136,6 +178,31 @@ class NodeService:
                 status_code=409,
                 detail=f"节点状态为 {node.status}，只能在 waiting_human 时推进",
             )
+
+        # ---- Step 1.5 (Bug 2 修复): assignee 权限校验 ----
+        # 演示场景路景智一人多角色：cookie session.node_id 可能绑在 applicant_view 入口节点上，
+        # 但用户随后操作的是 manager_review / hr_initial / applicant_final_confirm 等业务节点。
+        # 为兼容此场景，**只比对 session.sub == node.assignee**（不严格 node_id 一致）。
+        # 真实环境 — 若需严格隔离每个节点 token，把下面 elif 改回 if + raise。
+        if current_user_sub is not None:
+            if current_user_node_id is not None and str(current_user_node_id) != str(node_id):
+                logger.info(
+                    "[node_service] session bound to node=%s but submitting node=%s — 不挡（demo 一人多节点场景）",
+                    current_user_node_id,
+                    node_id,
+                )
+            if node.assignee and current_user_sub != node.assignee:
+                logger.warning(
+                    "[node_service] 403 — session sub=%s != node.assignee=%s",
+                    current_user_sub,
+                    node.assignee,
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"当前用户 {current_user_sub} 不是此节点的负责人（{node.assignee}）",
+                )
+            # 强制覆盖 actor：忽略客户端自报，以 session 为准
+            actor = current_user_sub
 
         action_type, new_status = _ACTION_MAP[action]
         previous_status = node.status
@@ -279,31 +346,69 @@ class NodeService:
 
         # ---- Step 6.5: graph 推进后，把新激活的 waiting_human 节点 upsert 到业务表 ----
         # （Pre-existing fix：节点函数本身不写业务表，否则 interrupt 重跑会污染状态；
-        #  这里 advance/return 成功后才同步，幂等 upsert）
-        if action in ("advance", "return"):
+        #  这里 advance/return 成功后才同步，幂等 upsert + enqueue 邮件）
+        if action in ("advance", "return") and flow is not None:
             try:
                 snap_config = {"configurable": {"thread_id": str(flow_id)}}
                 snap = await self.graph.aget_state(snap_config)
                 next_node_names = [str(n) for n in (snap.next or [])]
+                # **去重关键**：fan-in 时 snap.next 会同时返回剩余所有 waiting 节点，
+                # 但其中已经 IM 推过 / 邮件发过的不要再发。只对**真新增**（之前不存在或
+                # status 不是 waiting_human）的节点推。
+                existing_waiting: set[str] = set()
+                existing_nodes_list = await self.node_repo.list_by_flow(flow_id)
+                for n in existing_nodes_list:
+                    if n.status == NodeStatus.WAITING_HUMAN.value:
+                        existing_waiting.add(n.node_name)
+
+                upserted_nodes: list[Any] = []
                 for nn in next_node_names:
                     meta = _NODE_META.get(nn)
                     if meta is None:
                         continue
-                    await self.node_repo.upsert(
+                    # _employee_ 占位符 → 真实 flow.employee_id（apply / applicant_final_confirm）
+                    resolved_assignee = (
+                        flow.employee_id if meta["assignee"] == "_employee_" else meta["assignee"]
+                    )
+                    new_node = await self.node_repo.upsert(
                         flow_id=flow_id,
                         node_name=nn,
                         node_title=meta["title"],
                         status=NodeStatus.WAITING_HUMAN,
-                        assignee=meta["assignee"],
+                        assignee=resolved_assignee,
                     )
+                    # 仅当节点之前不是 waiting_human（真正新激活的）→ 加入 IM/邮件 push 列表
+                    if nn not in existing_waiting:
+                        upserted_nodes.append((nn, new_node, resolved_assignee))
+                    else:
+                        logger.info("[node_service] skip re-push (already waiting): node=%s", nn)
                 if next_node_names:
                     await self.session.commit()
                     logger.info(
                         "[node_service] upserted next waiting_human nodes: %s",
                         next_node_names,
                     )
+                # 给每个新激活节点 enqueue 邮件（幂等：outbox UNIQUE 约束防重发）
+                if upserted_nodes and self.notification_service is not None:
+                    await self._enqueue_emails_for_activated_nodes(
+                        flow_id=flow_id,
+                        employee_id=flow.employee_id,
+                        nodes=upserted_nodes,
+                    )
+                    # 必须 commit 把 outbox INSERT 落库 — 否则请求结束 session 回收，邮件丢失
+                    await self.session.commit()
+                    logger.info(
+                        "[node_service] step6.5 outbox commit OK for nodes: %s",
+                        [n[0] for n in upserted_nodes],
+                    )
+                    # 同步 — 用 lark IM 直接私聊路景智推送（含 deeplink）
+                    await self._send_lark_im_for_activated_nodes(
+                        flow_id=flow_id,
+                        employee_id=flow.employee_id,
+                        nodes=upserted_nodes,
+                    )
             except Exception as e:
-                logger.warning("[node_service] upsert next nodes failed (non-fatal): %s", e)
+                logger.warning("[node_service] upsert/enqueue next nodes failed (non-fatal): %s", e)
 
         # ---- Step 7 (Phase 2 handover): advance 时 fire-and-forget 生成节点交接文档 ----
         if action == "advance" and flow is not None:
@@ -348,6 +453,179 @@ class NodeService:
             "action_log_id": str(action_log.id),
             "next_node": None,  # Phase 2 Plan 05 才接入 graph snapshot.next
         }
+
+    async def _send_lark_im_for_activated_nodes(
+        self,
+        *,
+        flow_id: uuid.UUID,
+        employee_id: str,
+        nodes: list[Any],
+    ) -> None:
+        """演示模式 — 节点激活时通过飞书 bot 直接私聊路景智推送（含邮件全部内容 + 公网 deeplink）。
+
+        与邮件 outbox 双通道并行。配置 LARK_DEMO_OWNER_OPEN_ID 时启用，否则跳过。
+        """
+        import json as _json
+        import time as _time
+        from uuid import uuid4 as _uuid4
+
+        import httpx
+
+        from offboarding_flow.auth import deep_link as _deep_link
+        from offboarding_flow.auth import jwt_service as _jwt
+        from offboarding_flow.auth.schemas import JWTPayload as _JWTPayload
+        from offboarding_flow.config import get_settings as _get_settings
+        from offboarding_flow.providers.lark_provider import _get_tenant_token as _get_lark_tok
+
+        settings = _get_settings()
+        owner_open_id = settings.lark_demo_owner_open_id
+        if not owner_open_id:
+            return
+
+        try:
+            tok = await _get_lark_tok(
+                settings.lark_base_url, settings.lark_app_id, settings.lark_app_secret
+            )
+        except Exception as e:
+            logger.warning("[node_service] get lark token fail (skip IM push): %s", e)
+            return
+
+        headers = {
+            "Authorization": f"Bearer {tok}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        url = f"{settings.lark_base_url}/open-apis/im/v1/messages?receive_id_type=open_id"
+
+        role_cn = {
+            "applicant": "申请人",
+            "manager": "上级（李四）",
+            "hr": "HR",
+            "it_admin": "IT 管理员（Charlie）",
+            "finance": "财务（David）",
+            "legal": "法务（Eve）",
+        }
+
+        now = int(_time.time())
+        async with httpx.AsyncClient(timeout=10) as client:
+            for node_name, node_obj, assignee_username in nodes:
+                try:
+                    role = _NODE_ROLE.get(node_name, "applicant")
+                    title = _NODE_META[node_name]["title"]
+                    desc = _NODE_DESC.get(node_name, "请处理此节点。")
+                    payload = _JWTPayload(
+                        sub=assignee_username,
+                        email=f"{assignee_username}@demo.local",
+                        role=role,
+                        flow_id=flow_id,
+                        node_id=node_obj.id,
+                        node_name=node_name,
+                        allowed_actions=["advance", "return", "reject"],
+                        iat=now,
+                        exp=now + settings.token_expiry_hours * 3600,
+                        jti=_uuid4().hex,
+                    )
+                    token = _jwt.encode(payload)
+                    deeplink = _deep_link.build_deep_link(
+                        token, payload, base_url=settings.deeplink_base_url
+                    )
+                    text = (
+                        f'<at user_id="{owner_open_id}"></at>\n'
+                        f"【流程通知 — 您现在是【{role_cn.get(role, role)}】身份】\n\n"
+                        f"📌 待处理节点：**{title}**\n"
+                        f"👤 离职申请人：{employee_id}\n"
+                        f"📝 任务说明：{desc}\n\n"
+                        f"🔗 公网处理入口（点开直接操作）：\n{deeplink}\n\n"
+                        f"💬 或在飞书直接回复 bot："
+                        f"`通过 [意见]` / `退回 [意见]` / `拒绝 [意见]`\n\n"
+                        f"_由 AI 流程引擎自动通知 · 案件 ID {str(flow_id)[:8]}_"
+                    )
+                    body = {
+                        "receive_id": owner_open_id,
+                        "msg_type": "text",
+                        "content": _json.dumps({"text": text}, ensure_ascii=False),
+                    }
+                    r = await client.post(url, headers=headers, json=body)
+                    d = r.json()
+                    if d.get("code") == 0:
+                        logger.info("[node_service] lark IM pushed → owner node=%s", node_name)
+                    else:
+                        logger.warning(
+                            "[node_service] lark IM push fail node=%s code=%s msg=%s",
+                            node_name,
+                            d.get("code"),
+                            d.get("msg"),
+                        )
+                except Exception as e:
+                    logger.warning("[node_service] lark IM push exc node=%s: %s", node_name, e)
+
+    async def _enqueue_emails_for_activated_nodes(
+        self,
+        *,
+        flow_id: uuid.UUID,
+        employee_id: str,
+        nodes: list[Any],
+    ) -> None:
+        """给 step 6.5 新激活的 waiting_human 节点逐个 enqueue 邮件 + 签深链 token。
+
+        幂等：outbox UNIQUE(flow_id, node_state_id, channel) 防 LangGraph interrupt 重跑重发。
+        """
+        import time as _time
+        from uuid import uuid4 as _uuid4
+
+        from offboarding_flow.auth import jwt_service as _jwt
+        from offboarding_flow.auth.schemas import JWTPayload as _JWTPayload
+        from offboarding_flow.config import get_settings as _get_settings
+
+        settings = _get_settings()
+        now = int(_time.time())
+
+        for node_name, node_obj, assignee_username in nodes:
+            try:
+                role = _NODE_ROLE.get(node_name, "applicant")
+                desc = _NODE_DESC.get(node_name, "请处理此节点。")
+                title = _NODE_META[node_name]["title"]
+                payload = _JWTPayload(
+                    sub=assignee_username,
+                    email=f"{assignee_username}@demo.local",
+                    role=role,
+                    flow_id=flow_id,
+                    node_id=node_obj.id,
+                    node_name=node_name,
+                    allowed_actions=["advance", "return", "reject"],
+                    iat=now,
+                    exp=now + settings.token_expiry_hours * 3600,
+                    jti=_uuid4().hex,
+                )
+                token = _jwt.encode(payload)
+                await self.notification_service.enqueue_node_email(
+                    flow_id=flow_id,
+                    node_state_id=node_obj.id,
+                    node_name=node_name,
+                    node_title=title,
+                    node_description=desc,
+                    assignee_username=assignee_username,
+                    assignee_email=f"{assignee_username}@demo.local",
+                    assignee_role=role,
+                    employee_name=employee_id,
+                    deep_link_payload=payload,
+                    deep_link_token=token,
+                )
+                # 立即唤醒 outbox drain
+                try:
+                    from offboarding_flow.workers.outbox_drain import signal_outbox_pending
+
+                    signal_outbox_pending()
+                except Exception:
+                    pass
+                logger.info(
+                    "[node_service] step6.5 enqueued email node=%s assignee=%s",
+                    node_name,
+                    assignee_username,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[node_service] step6.5 enqueue email failed node=%s: %s", node_name, e
+                )
 
 
 # ---------------------------------------------------------------------------

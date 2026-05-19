@@ -209,7 +209,7 @@ class MeetingService:
             {"raw_text": raw_text.strip()},
             with_disclaimer=False,
             with_header=False,
-            timeout=30.0,  # 提取任务给久一点
+            timeout=90.0,  # 提取任务给久一点（GLM-4-flash 2000字 prompt 实测 45s）
         )
         if not result:
             raise RuntimeError("LLM 提取失败（超时 / 空返回）")
